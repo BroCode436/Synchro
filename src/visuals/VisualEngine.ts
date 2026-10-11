@@ -88,6 +88,11 @@ export class VisualEngine {
     const isBilateral = settings.symmetryMode === 'bilateral';
     const bloom = settings.postProcessing?.bloomGlow !== false;
 
+    // Futuristic Jet Black Mode: removes obsidian texture, fills with pitch black void, and highlights neons
+    const isJetBlack = settings.background?.mode === 'jet-black';
+    const neonHighlight = settings.background?.neonHighlight !== false;
+    const glowBoost = (isJetBlack && neonHighlight) ? 1.45 : 1.0;
+
     // Responsive smoothing rate controlled by user smoothing slider
     const smoothingVal = settings.smoothing ?? 0.75;
     const bassSmoothRate = Math.max(0.04, Math.min(0.35, 0.28 - smoothingVal * 0.20));
@@ -114,11 +119,14 @@ export class VisualEngine {
 
     // 1. BACKGROUND TEXTURE & MOTION PERSISTENCE FADE
     ctx.save();
-    if (settings.background?.textureEnabled !== false && this.bgTextureImg && this.bgTextureImg.complete) {
+    // In Jet Black mode, the obsidian texture is completely removed
+    if (!isJetBlack && settings.background?.textureEnabled !== false && this.bgTextureImg && this.bgTextureImg.complete) {
       const texOpacity = settings.background?.textureOpacity ?? 0.45;
       ctx.globalAlpha = texOpacity;
       ctx.drawImage(this.bgTextureImg, 0, 0, width, height);
     }
+
+    const effectiveBgColor = isJetBlack ? '#000000' : palette.colors.background;
 
     if (settings.postProcessing.trails) {
       let alpha = 1 - settings.postProcessing.trailPersistence;
@@ -128,12 +136,12 @@ export class VisualEngine {
       else if (settings.preset === 'minimal') alpha = 0.22;
       else if (settings.preset === 'kaleidoscope') alpha = 0.14;
 
-      ctx.fillStyle = palette.colors.background;
+      ctx.fillStyle = effectiveBgColor;
       ctx.globalAlpha = Math.max(0.06, Math.min(0.35, alpha));
       ctx.fillRect(0, 0, width, height);
     } else {
-      ctx.fillStyle = palette.colors.background;
-      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = effectiveBgColor;
+      ctx.globalAlpha = isJetBlack ? 1.0 : 0.85;
       ctx.fillRect(0, 0, width, height);
     }
     ctx.restore();
@@ -222,7 +230,7 @@ export class VisualEngine {
 
     // 3. HORIZONTAL OSCILLOSCOPE BEAM (Across the horizon connecting left and right flanks)
     if (settings.flanks?.horizontalOscilloscope !== false) {
-      this.renderHorizontalOscilloscopeBeam(ctx, width, height, cy, audio, palette, intensity, sensitivity);
+      this.renderHorizontalOscilloscopeBeam(ctx, width, height, cy, audio, palette, intensity, sensitivity, glowBoost);
     }
 
     // 4. CELESTIAL CONSTELLATION CLUSTERS (Upper geometric nodes)
@@ -237,30 +245,30 @@ export class VisualEngine {
 
     // 6. SYSTEM D: BASS FIELD (Cymatic Radial Resonance & Breathing Rings)
     if (settings.activeSystems.bass) {
-      this.renderCymaticBassField(ctx, cx, cy, maxRadius, this.smoothedBass, intensity, palette, dt, folds, isBilateral, timeMs, bloom);
+      this.renderCymaticBassField(ctx, cx, cy, maxRadius, this.smoothedBass, intensity, palette, dt, folds, isBilateral, timeMs, bloom, glowBoost);
     }
 
     // 7. SYSTEM C: HARMONIC GEOMETRY (Sacred Mandalas & Rotating Crystalline Wireframes)
     if (settings.activeSystems.harmonic) {
-      this.renderSacredHarmonicMandala(ctx, cx, cy, maxRadius, scaledMid, this.smoothedCentroid, intensity, palette, dt, folds, isBilateral, timeMs, bloom);
+      this.renderSacredHarmonicMandala(ctx, cx, cy, maxRadius, scaledMid, this.smoothedCentroid, intensity, palette, dt, folds, isBilateral, timeMs, bloom, glowBoost);
     }
 
     // 8. SYSTEM A: MELODIC RIBBONS (Extravagant Symmetrical Spirals & Gossamer Tendrils)
     if (settings.activeSystems.melodic) {
-      this.renderSymmetricMelodicFilaments(ctx, cx, cy, maxRadius, audio, this.smoothedPitch, intensity, palette, dt, folds, isBilateral, timeMs, bloom);
+      this.renderSymmetricMelodicFilaments(ctx, cx, cy, maxRadius, audio, this.smoothedPitch, intensity, palette, dt, folds, isBilateral, timeMs, bloom, glowBoost);
     }
 
     // 9. SYSTEM B: PERCUSSION IMPACTS (Crystalline Starlight Shockbursts)
     if (settings.activeSystems.percussion) {
-      this.renderSymmetricImpacts(ctx, cx, cy, dt, palette, folds, isBilateral);
+      this.renderSymmetricImpacts(ctx, cx, cy, dt, palette, folds, isBilateral, glowBoost);
     }
 
     // 10. SUBTLE SACRED RETICLE & CENTRAL NODAL SEED
-    this.renderCentralNodalSeed(ctx, cx, cy, scaledRms, palette);
+    this.renderCentralNodalSeed(ctx, cx, cy, scaledRms, palette, glowBoost);
 
     // 11. STEREO AUDIO SPECTRUM TOWERS (Left & Right Flanks)
     if (settings.flanks?.stereoTowers !== false) {
-      this.renderStereoSideTowers(ctx, width, height, cy, audio, palette, intensity, sensitivity, dt);
+      this.renderStereoSideTowers(ctx, width, height, cy, audio, palette, intensity, sensitivity, dt, glowBoost);
     }
   }
 
@@ -278,7 +286,8 @@ export class VisualEngine {
     folds: number,
     isBilateral: boolean,
     timeMs: number,
-    bloom = true
+    bloom = true,
+    glowBoost = 1.0
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -345,10 +354,10 @@ export class VisualEngine {
 
       // Outer ethereal glow (subtle and fine)
       ctx.shadowColor = palette.colors.melodic;
-      ctx.shadowBlur = bloom ? (6 + melodicEnergy * 14) * intensity : 0;
+      ctx.shadowBlur = bloom ? (6 + melodicEnergy * 14) * intensity * glowBoost : 0;
       ctx.strokeStyle = palette.colors.melodic;
-      ctx.lineWidth = Math.max(0.6, (0.8 + melodicEnergy * 1.4) * intensity);
-      ctx.globalAlpha = Math.min(0.85, 0.4 + melodicEnergy * 0.5);
+      ctx.lineWidth = Math.max(0.6, (0.8 + melodicEnergy * 1.4) * intensity * (glowBoost > 1 ? 1.15 : 1.0));
+      ctx.globalAlpha = Math.min(1.0, (0.4 + melodicEnergy * 0.5) * (glowBoost > 1 ? 1.2 : 1.0));
       ctx.stroke();
 
       // Delicate silver-white core hairline
@@ -388,7 +397,8 @@ export class VisualEngine {
     dt: number,
     palette: ReturnType<typeof getPalette>,
     folds: number,
-    isBilateral: boolean
+    isBilateral: boolean,
+    glowBoost = 1.0
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -420,9 +430,9 @@ export class VisualEngine {
 
       ctx.strokeStyle = imp.color;
       ctx.shadowColor = imp.color;
-      ctx.shadowBlur = 12 * imp.life;
-      ctx.lineWidth = Math.max(0.7, 2.0 * imp.life);
-      ctx.globalAlpha = alpha;
+      ctx.shadowBlur = 12 * imp.life * glowBoost;
+      ctx.lineWidth = Math.max(0.7, 2.0 * imp.life * (glowBoost > 1 ? 1.2 : 1.0));
+      ctx.globalAlpha = Math.min(1.0, alpha * (glowBoost > 1 ? 1.2 : 1.0));
       ctx.stroke();
 
       // 2. Secondary Inward Starlight Facet Ring
@@ -477,7 +487,8 @@ export class VisualEngine {
     folds: number,
     isBilateral: boolean,
     timeMs: number,
-    bloom = true
+    bloom = true,
+    glowBoost = 1.0
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -513,10 +524,10 @@ export class VisualEngine {
 
       // Outer Glow Pass
       ctx.shadowColor = palette.colors.harmonic;
-      ctx.shadowBlur = bloom ? (6 + midEnergy * 15) * intensity : 0;
+      ctx.shadowBlur = bloom ? (6 + midEnergy * 15) * intensity * glowBoost : 0;
       ctx.strokeStyle = palette.colors.harmonic;
-      ctx.lineWidth = Math.max(0.6, (0.8 + midEnergy * 1.4) * intensity);
-      ctx.globalAlpha = Math.min(0.85, 0.35 + midEnergy * 0.5);
+      ctx.lineWidth = Math.max(0.6, (0.8 + midEnergy * 1.4) * intensity * (glowBoost > 1 ? 1.15 : 1.0));
+      ctx.globalAlpha = Math.min(1.0, (0.35 + midEnergy * 0.5) * (glowBoost > 1 ? 1.2 : 1.0));
       ctx.stroke();
 
       // B. Fine Inner Cross-Lattice Webbing (Star Polygon Intersections)
@@ -553,7 +564,8 @@ export class VisualEngine {
     folds: number,
     isBilateral: boolean,
     timeMs: number,
-    bloom = true
+    bloom = true,
+    glowBoost = 1.0
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -585,10 +597,10 @@ export class VisualEngine {
 
       // Outer Deep Bass Glow
       ctx.shadowColor = palette.colors.bass;
-      ctx.shadowBlur = bloom ? (8 + bassEnergy * 20) * intensity : 0;
+      ctx.shadowBlur = bloom ? (8 + bassEnergy * 20) * intensity * glowBoost : 0;
       ctx.strokeStyle = palette.colors.bass;
-      ctx.lineWidth = Math.max(0.6, (0.8 + bassEnergy * 2.2) * intensity);
-      ctx.globalAlpha = Math.min(0.75, 0.25 + bassEnergy * 0.5);
+      ctx.lineWidth = Math.max(0.6, (0.8 + bassEnergy * 2.2) * intensity * (glowBoost > 1 ? 1.15 : 1.0));
+      ctx.globalAlpha = Math.min(1.0, (0.25 + bassEnergy * 0.5) * (glowBoost > 1 ? 1.25 : 1.0));
       ctx.stroke();
 
       // Hairline accent edge
@@ -608,20 +620,21 @@ export class VisualEngine {
     cx: number,
     cy: number,
     rms: number,
-    palette: ReturnType<typeof getPalette>
+    palette: ReturnType<typeof getPalette>,
+    glowBoost = 1.0
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
 
-    const pulseRadius = 2.5 + rms * 8;
+    const pulseRadius = (2.5 + rms * 8) * (glowBoost > 1 ? 1.2 : 1.0);
 
     // Glowing central seed
     ctx.beginPath();
     ctx.arc(cx, cy, pulseRadius, 0, Math.PI * 2);
     ctx.fillStyle = palette.colors.accent;
     ctx.shadowColor = palette.colors.melodic;
-    ctx.shadowBlur = 12;
-    ctx.globalAlpha = 0.85;
+    ctx.shadowBlur = 12 * glowBoost;
+    ctx.globalAlpha = 0.95;
     ctx.fill();
 
     // Subtle framing reticle crosshair
@@ -649,7 +662,8 @@ export class VisualEngine {
     audio: AudioFrameData,
     palette: ReturnType<typeof getPalette>,
     intensity: number,
-    sensitivity: number
+    sensitivity: number,
+    glowBoost = 1.0
   ): void {
     const timeDomain = audio.timeDomain;
     if (!timeDomain || timeDomain.length === 0) return;
@@ -742,7 +756,8 @@ export class VisualEngine {
     palette: ReturnType<typeof getPalette>,
     intensity: number,
     sensitivity: number,
-    dt: number
+    dt: number,
+    glowBoost = 1.0
   ): void {
     const freqData = audio.frequencyData;
     if (!freqData || freqData.length === 0) return;

@@ -40,7 +40,9 @@ const INITIAL_SETTINGS: VisualSettings = {
   },
   background: {
     textureEnabled: true,
-    textureOpacity: 0.35
+    textureOpacity: 0.35,
+    mode: 'obsidian',
+    neonHighlight: true
   },
   flanks: {
     stereoTowers: true,
@@ -89,6 +91,7 @@ export const App: React.FC = () => {
   const [showControls, setShowControls] = useState(true);
   const [showAnalysis, setShowAnalysis] = useState(true);
   const [showPerf, setShowPerf] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isBigScreenMode, setIsBigScreenMode] = useState(false);
   const [isMouseIdle, setIsMouseIdle] = useState(false);
@@ -104,6 +107,21 @@ export const App: React.FC = () => {
     } else {
       document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
     }
+  }, []);
+
+  // Toggle Futuristic Jet Black Mode
+  const toggleJetBlack = useCallback(() => {
+    setSettings(prev => {
+      const nextMode = prev.background?.mode === 'jet-black' ? 'obsidian' : 'jet-black';
+      return {
+        ...prev,
+        background: {
+          ...prev.background,
+          mode: nextMode,
+          textureEnabled: nextMode !== 'jet-black'
+        }
+      };
+    });
   }, []);
 
   useEffect(() => {
@@ -140,6 +158,24 @@ export const App: React.FC = () => {
       } else if (e.code === 'Space') {
         e.preventDefault();
         audioEngine.togglePlayPause();
+      } else if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        setShowTimeline(prev => !prev);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        audioEngine.skipBy(-5);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        audioEngine.skipBy(5);
+      } else if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        audioEngine.skipBy(-10);
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        audioEngine.skipBy(10);
+      } else if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        toggleJetBlack();
       }
     };
 
@@ -237,6 +273,10 @@ export const App: React.FC = () => {
           setShowAnalysis={setShowAnalysis}
           showPerf={showPerf}
           setShowPerf={setShowPerf}
+          showTimeline={showTimeline}
+          setShowTimeline={setShowTimeline}
+          isJetBlack={settings.background?.mode === 'jet-black'}
+          onToggleJetBlack={toggleJetBlack}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
           onToggleBigScreen={() => setIsBigScreenMode(true)}
@@ -319,13 +359,22 @@ export const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-center gap-2 text-[10px] font-mono text-white/40">
+            <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap items-center justify-center gap-2 text-[10px] font-mono text-white/40">
               <span>Shortcuts:</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">Space</kbd>
+              <span>Play</span>
+              <span>•</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">T</kbd>
+              <span>Seek Bar</span>
+              <span>•</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">N</kbd>
+              <span>Jet Black</span>
+              <span>•</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">←/→</kbd>
+              <span>±5s</span>
+              <span>•</span>
               <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">F</kbd>
               <span>Fullscreen</span>
-              <span>•</span>
-              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">Space</kbd>
-              <span>Play/Pause</span>
               <span>•</span>
               <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">B</kbd>
               <span>Cinema Mode</span>

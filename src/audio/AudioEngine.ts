@@ -81,6 +81,13 @@ export class AudioEngine {
       const synthBus = this.ctx.createGain();
       synthBus.connect(this.masterGain);
       this.demoSynth = new DemoSynthEngine(this.ctx, synthBus);
+      this.demoSynth.setOnStepCallback((step: number) => {
+        if (this.currentSource === 'demo' && this.playbackState.isDemoActive) {
+          this.playbackState.currentTime = (step / 64) * 8.0;
+          this.playbackState.duration = 8.0;
+          this.notifyState();
+        }
+      });
     }
 
     if (this.ctx.state === 'suspended') {
@@ -105,6 +112,8 @@ export class AudioEngine {
     this.playbackState = {
       ...this.playbackState,
       isPlaying: true,
+      currentTime: 0,
+      duration: 8.0,
       sourceType: 'demo',
       isMicActive: false,
       isDemoActive: true
@@ -273,9 +282,65 @@ export class AudioEngine {
       this.notifyState();
     } else if (this.currentSource === 'demo' && this.demoSynth) {
       this.demoSynth.reset();
+      this.playbackState.currentTime = 0;
+      this.notifyState();
     }
     this.onsetDetector.reset();
     this.bpmEstimator.reset();
+  }
+
+  /**
+   * Seek playback to an exact timestamp in seconds.
+   * Works for both uploaded audio files and the procedural demo synth.
+   */
+  public seek(timeSeconds: number): void {
+    if (this.currentSource === 'file' && this.audioElement) {
+      const maxDuration = this.playbackState.duration > 0 ? this.playbackState.duration : Infinity;
+      const clamped = Math.max(0, Math.min(timeSeconds, maxDuration));
+      this.audioElement.currentTime = clamped;
+      this.playbackState.currentTime = clamped;
+      this.notifyState();
+    } else if (this.currentSource === 'demo' && this.demoSynth) {
+      const loopDuration = 8.0;
+      const normalized = Math.max(0, timeSeconds % loopDuration);
+      const step = Math.floor((normalized / loopDuration) * 64);
+      this.demoSynth.jumpToStep(step);
+      this.playbackState.currentTime = normalized;
+      this.playbackState.duration = loopDuration;
+      this.notifyState();
+    }
+  }
+
+  /**
+   * Seek playback to a fractional percentage (0.0 to 1.0).
+   */
+  public seekPercent(fraction: number): void {
+    const clamped = Math.max(0, Math.min(1, fraction));
+    if (this.currentSource === 'file' && this.playbackState.duration > 0) {
+      this.seek(clamped * this.playbackState.duration);
+    } else if (this.currentSource === 'demo') {
+      this.seek(clamped * 8.0);
+    }
+  }
+
+  /**
+   * Skip forward or backward by deltaSeconds.
+   */
+  public skipBy(deltaSeconds: number): void {
+    this.seek(this.playbackState.currentTime + deltaSeconds);
+  }
+
+  /**
+   * Jump Demo Synth to a specific step (0 to 63).
+   */
+  public jumpDemoStep(step: number): void {
+    if (this.demoSynth) {
+      this.demoSynth.jumpToStep(step);
+      const loopDuration = 8.0;
+      this.playbackState.currentTime = (step / 64) * loopDuration;
+      this.playbackState.duration = loopDuration;
+      this.notifyState();
+    }
   }
 
   public stopAudioFile(): void {

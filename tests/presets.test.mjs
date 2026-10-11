@@ -28,7 +28,12 @@ const DEFAULT_SETTINGS = {
     featherEdge: true,
     haloGlow: true
   },
-  background: { textureEnabled: true, textureOpacity: 0.45 },
+  background: {
+    textureEnabled: true,
+    textureOpacity: 0.45,
+    mode: 'obsidian',
+    neonHighlight: true
+  },
   flanks: { stereoTowers: true, horizontalOscilloscope: true, constellations: true }
 };
 
@@ -64,6 +69,15 @@ function validateVisualSettings(raw) {
     ? input.paletteId.replace(/[^a-zA-Z0-9_-]/g, '')
     : DEFAULT_SETTINGS.paletteId;
 
+  const background = {
+    textureEnabled: input.background?.textureEnabled !== false,
+    textureOpacity: typeof input.background?.textureOpacity === 'number'
+      ? Math.max(0, Math.min(1, input.background.textureOpacity))
+      : DEFAULT_SETTINGS.background.textureOpacity,
+    mode: input.background?.mode === 'jet-black' ? 'jet-black' : 'obsidian',
+    neonHighlight: input.background?.neonHighlight !== false
+  };
+
   return {
     ...DEFAULT_SETTINGS,
     sensitivity,
@@ -72,7 +86,8 @@ function validateVisualSettings(raw) {
     symmetryFolds,
     symmetryMode,
     preset,
-    paletteId
+    paletteId,
+    background
   };
 }
 
@@ -86,6 +101,24 @@ test('validateVisualSettings clamps out-of-range sensitivity and intensity', () 
   assert.strictEqual(result.sensitivity, 3.0);
   assert.strictEqual(result.intensity, 0.2);
   assert.strictEqual(result.symmetryFolds, 16);
+});
+
+test('validateVisualSettings handles jet-black mode and preserves neonHighlight', () => {
+  const jetBlackConfig = validateVisualSettings({
+    background: {
+      mode: 'jet-black',
+      textureEnabled: false,
+      neonHighlight: true
+    }
+  });
+
+  assert.strictEqual(jetBlackConfig.background.mode, 'jet-black');
+  assert.strictEqual(jetBlackConfig.background.textureEnabled, false);
+  assert.strictEqual(jetBlackConfig.background.neonHighlight, true);
+
+  const defaultBg = validateVisualSettings({});
+  assert.strictEqual(defaultBg.background.mode, 'obsidian');
+  assert.strictEqual(defaultBg.background.textureEnabled, true);
 });
 
 test('validateVisualSettings rejects invalid types and replaces with safe defaults', () => {

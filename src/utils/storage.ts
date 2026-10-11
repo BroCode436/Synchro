@@ -61,7 +61,9 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   },
   background: {
     textureEnabled: true,
-    textureOpacity: 0.45
+    textureOpacity: 0.45,
+    mode: 'obsidian',
+    neonHighlight: true
   },
   flanks: {
     stereoTowers: true,
@@ -156,7 +158,9 @@ export function validateVisualSettings(raw: unknown): VisualSettings | null {
       textureEnabled: input.background?.textureEnabled !== false,
       textureOpacity: typeof input.background?.textureOpacity === 'number'
         ? Math.max(0, Math.min(1, input.background.textureOpacity))
-        : DEFAULT_VISUAL_SETTINGS.background.textureOpacity
+        : DEFAULT_VISUAL_SETTINGS.background.textureOpacity,
+      mode: input.background?.mode === 'jet-black' ? 'jet-black' as const : 'obsidian' as const,
+      neonHighlight: input.background?.neonHighlight !== false
     };
 
     const flanks = {

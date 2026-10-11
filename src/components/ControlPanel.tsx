@@ -965,50 +965,149 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
           )}
 
-          {/* Background Texture Controls */}
-          <div className="p-2.5 rounded-lg bg-white/5 border border-white/5 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs font-semibold block">Obsidian Grain Texture</span>
-                <span className="text-[10px] text-white/40">Organic dark slate backdrop</span>
+          {/* Background Mode & Texture Controls */}
+          <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold">Stage Backdrop Mode</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                  settings.background?.mode === 'jet-black'
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40 shadow-[0_0_8px_rgba(6,182,212,0.3)]'
+                    : 'bg-white/10 text-white/60 border-white/10'
+                }`}>
+                  {settings.background?.mode === 'jet-black' ? 'OLED JET BLACK' : 'OBSIDIAN SLATE'}
+                </span>
               </div>
-              <input
-                type="checkbox"
-                checked={settings.background.textureEnabled}
-                onChange={e => {
-                  const checked = e.target.checked;
-                  onUpdateSettings(prev => ({
-                    ...prev,
-                    background: { ...prev.background, textureEnabled: checked }
-                  }));
-                }}
-                className="w-4 h-4 accent-cyan-400 cursor-pointer"
-              />
-            </div>
+              <p className="text-[10px] text-white/50 leading-relaxed mb-2.5">
+                Choose between organic textured obsidian rock or a futuristic pure pitch-black OLED void where all colors and lasers pop with maximum contrast.
+              </p>
 
-            {settings.background.textureEnabled && (
-              <div>
-                <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-white/60">Texture Opacity</span>
-                  <span className="text-cyan-300 font-bold">
-                    {Math.round(settings.background.textureOpacity * 100)}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.05"
-                  max="0.9"
-                  step="0.05"
-                  value={settings.background.textureOpacity}
-                  onChange={e => {
-                    const val = parseFloat(e.target.value);
+              {/* Mode Toggle Buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
                     onUpdateSettings(prev => ({
                       ...prev,
-                      background: { ...prev.background, textureOpacity: val }
+                      background: {
+                        ...prev.background,
+                        mode: 'jet-black',
+                        textureEnabled: false
+                      }
                     }));
                   }}
-                  className="w-full accent-cyan-400 bg-white/10 h-1.5 rounded-lg appearance-none cursor-pointer"
-                />
+                  className={`p-2 rounded-lg border text-left transition-all flex flex-col gap-0.5 ${
+                    settings.background?.mode === 'jet-black'
+                      ? 'bg-cyan-500/20 border-cyan-400/60 shadow-[0_0_14px_rgba(6,182,212,0.25)] text-cyan-200'
+                      : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                    <span className="text-xs font-bold">Jet Black Neon</span>
+                  </div>
+                  <span className="text-[9px] text-white/50">Pitch black void • Vivid glow</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUpdateSettings(prev => ({
+                      ...prev,
+                      background: {
+                        ...prev.background,
+                        mode: 'obsidian',
+                        textureEnabled: true
+                      }
+                    }));
+                  }}
+                  className={`p-2 rounded-lg border text-left transition-all flex flex-col gap-0.5 ${
+                    settings.background?.mode !== 'jet-black'
+                      ? 'bg-purple-500/20 border-purple-400/60 shadow-[0_0_14px_rgba(168,85,247,0.25)] text-purple-200'
+                      : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-purple-400" />
+                    <span className="text-xs font-bold">Obsidian Slate</span>
+                  </div>
+                  <span className="text-[9px] text-white/50">Natural rock grain texture</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Jet Black Mode Controls */}
+            {settings.background?.mode === 'jet-black' ? (
+              <div className="pt-2 border-t border-white/5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold block text-cyan-300">Neon Highlight & Glow Boost</span>
+                    <span className="text-[10px] text-white/40">Intensify laser & mandala luminescence</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.background?.neonHighlight !== false}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      onUpdateSettings(prev => ({
+                        ...prev,
+                        background: { ...prev.background, neonHighlight: checked }
+                      }));
+                    }}
+                    className="w-4 h-4 accent-cyan-400 cursor-pointer"
+                  />
+                </div>
+                <div className="p-2 rounded-lg bg-cyan-950/20 border border-cyan-500/20 text-[10px] font-mono text-cyan-200/80 leading-relaxed">
+                  ✓ Obsidian texture removed. Background locked to 100% OLED pitch black (#000000). All audio geometric ribbons, cymatics and laser blooms pop with pristine high-contrast brilliance.
+                </div>
+              </div>
+            ) : (
+              /* Obsidian Slate Mode Controls */
+              <div className="pt-2 border-t border-white/5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold block">Obsidian Grain Texture</span>
+                    <span className="text-[10px] text-white/40">Organic dark slate backdrop overlay</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.background.textureEnabled}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      onUpdateSettings(prev => ({
+                        ...prev,
+                        background: { ...prev.background, textureEnabled: checked }
+                      }));
+                    }}
+                    className="w-4 h-4 accent-purple-400 cursor-pointer"
+                  />
+                </div>
+
+                {settings.background.textureEnabled && (
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-1">
+                      <span className="text-white/60">Texture Opacity</span>
+                      <span className="text-purple-300 font-bold">
+                        {Math.round(settings.background.textureOpacity * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.05"
+                      max="0.9"
+                      step="0.05"
+                      value={settings.background.textureOpacity}
+                      onChange={e => {
+                        const val = parseFloat(e.target.value);
+                        onUpdateSettings(prev => ({
+                          ...prev,
+                          background: { ...prev.background, textureOpacity: val }
+                        }));
+                      }}
+                      className="w-full accent-purple-400 bg-white/10 h-1.5 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

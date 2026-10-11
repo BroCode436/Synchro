@@ -111,7 +111,7 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
     <canvas
       ref={canvasRef}
       id="synchro-canvas"
-      className="fixed inset-0 w-full h-full block z-0 bg-[#040508] cursor-crosshair select-none"
+      className={`fixed inset-0 w-full h-full block z-0 ${settings.background?.mode === 'jet-black' ? 'bg-black' : 'bg-[#040508]'} cursor-crosshair select-none`}
     />
   );
 };

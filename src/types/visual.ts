@@ -45,9 +45,13 @@ export interface LogoSettings {
   haloGlow?: boolean;       // Atmospheric reactive stage lighting halo behind logo
 }
 
+export type BackgroundMode = 'obsidian' | 'jet-black';
+
 export interface BackgroundSettings {
   textureEnabled: boolean;
-  textureOpacity: number;   // 0 to 1
+  textureOpacity: number;    // 0 to 1
+  mode: BackgroundMode;      // 'obsidian' (classic slate grain) | 'jet-black' (futuristic OLED pitch black)
+  neonHighlight?: boolean;   // Boosts glow luminescence and contrast against pitch black
 }
 
 export interface FlankSettings {

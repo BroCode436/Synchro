@@ -15,11 +15,14 @@ import {
   Music,
   Circle,
   Square,
-  Video
+  Video,
+  SlidersHorizontal,
+  Sparkles
 } from 'lucide-react';
 import { AudioPlaybackState } from '../types/audio';
 import { audioEngine } from '../audio/AudioEngine';
 import { sessionRecorder, RecordingStatus } from '../utils/recorder';
+import { PlaybackTimeline } from './PlaybackTimeline';
 
 interface HeaderProps {
   playbackState: AudioPlaybackState;
@@ -29,6 +32,10 @@ interface HeaderProps {
   setShowAnalysis: (show: boolean) => void;
   showPerf: boolean;
   setShowPerf: (show: boolean) => void;
+  showTimeline?: boolean;
+  setShowTimeline?: (show: boolean | ((prev: boolean) => boolean)) => void;
+  isJetBlack?: boolean;
+  onToggleJetBlack?: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   onToggleBigScreen: () => void;
@@ -42,6 +49,10 @@ export const Header: React.FC<HeaderProps> = ({
   setShowAnalysis,
   showPerf,
   setShowPerf,
+  showTimeline,
+  setShowTimeline,
+  isJetBlack,
+  onToggleJetBlack,
   isFullscreen,
   onToggleFullscreen,
   onToggleBigScreen
@@ -96,10 +107,26 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const [internalShowTimeline, setInternalShowTimeline] = useState(false);
+  const isTimelineOpen = showTimeline !== undefined ? showTimeline : internalShowTimeline;
+
+  const toggleTimeline = () => {
+    if (setShowTimeline) {
+      setShowTimeline(prev => !prev);
+    } else {
+      setInternalShowTimeline(prev => !prev);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       audioEngine.loadAudioFile(file);
+      if (setShowTimeline) {
+        setShowTimeline(true);
+      } else {
+        setInternalShowTimeline(true);
+      }
     }
   };
 
@@ -110,7 +137,8 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-3.5 bg-[#06080d]/85 backdrop-blur-md border-b border-white/10 select-none">
+    <div className="fixed top-0 left-0 right-0 z-30 select-none">
+      <header className="flex items-center justify-between px-6 py-3.5 bg-[#06080d]/85 backdrop-blur-md border-b border-white/10">
       {/* Brand & Status */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2.5">
@@ -221,11 +249,11 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </button>
 
-        {/* Transport Controls (Play / Pause / Reset) */}
-        <div className="flex items-center gap-1 pl-2 border-l border-white/10">
+        {/* Transport Controls (Play / Pause / Reset / Skip / Scrubber Toggle) */}
+        <div className="flex items-center gap-1.5 pl-2 border-l border-white/10">
           <button
             onClick={() => audioEngine.togglePlayPause()}
-            title={playbackState.isPlaying ? 'Pause' : 'Play'}
+            title={playbackState.isPlaying ? 'Pause (Space)' : 'Play (Space)'}
             className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all"
           >
             {playbackState.isPlaying ? (
@@ -236,18 +264,68 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => audioEngine.resetPlayback()}
-            title="Reset Playback / Track Position"
+            title="Reset Playback / Track Position to 0:00"
             className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 transition-all"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
 
-          {/* Timecode display for file */}
-          {playbackState.sourceType === 'file' && playbackState.duration > 0 && (
-            <span className="text-[11px] font-mono text-white/50 pl-2">
-              {formatTime(playbackState.currentTime)} / {formatTime(playbackState.duration)}
-            </span>
+          {/* Quick Skip Buttons */}
+          {(playbackState.sourceType === 'file' || playbackState.sourceType === 'demo') && (
+            <div className="hidden sm:flex items-center gap-0.5">
+              <button
+                onClick={() => audioEngine.skipBy(-10)}
+                title="Skip back 10 seconds (← / J)"
+                className="flex items-center justify-center h-8 px-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-[10px] font-mono border border-white/10 transition-all"
+              >
+                -10s
+              </button>
+              <button
+                onClick={() => audioEngine.skipBy(10)}
+                title="Skip forward 10 seconds (→ / L)"
+                className="flex items-center justify-center h-8 px-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-[10px] font-mono border border-white/10 transition-all"
+              >
+                +10s
+              </button>
+            </div>
           )}
+
+          {/* Inline Mini Seek Scrubber */}
+          {(playbackState.sourceType === 'file' || playbackState.sourceType === 'demo') && playbackState.duration > 0 && (
+            <div className="hidden md:flex items-center gap-2 pl-1">
+              <div
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                  audioEngine.seekPercent(fraction);
+                }}
+                title="Click anywhere to jump audio playback timestamp"
+                className="relative w-24 lg:w-32 h-2 rounded-full bg-white/10 border border-white/15 cursor-pointer overflow-hidden group hover:h-2.5 transition-all"
+              >
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-400 via-indigo-400 to-purple-400 transition-[width] duration-75"
+                  style={{ width: `${Math.min(100, Math.max(0, (playbackState.currentTime / playbackState.duration) * 100))}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-mono text-white/50 tabular-nums whitespace-nowrap">
+                {formatTime(playbackState.currentTime)} / {formatTime(playbackState.duration)}
+              </span>
+            </div>
+          )}
+
+          {/* Scrubber / Timeline Drawer Toggle Button */}
+          <button
+            onClick={toggleTimeline}
+            title="Toggle Audio Seek Scrubber & Step Timeline (Press T)"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium border transition-all ${
+              isTimelineOpen
+                ? 'bg-amber-500/20 border-amber-400/60 text-amber-300 shadow-[0_0_14px_rgba(245,158,11,0.3)] font-semibold'
+                : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">{isTimelineOpen ? 'Hide Seek' : 'Seek Bar'}</span>
+          </button>
         </div>
       </div>
 
@@ -264,6 +342,20 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Activity className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Analysis</span>
+        </button>
+
+        {/* Futuristic Jet Black Mode Quick Toggle */}
+        <button
+          onClick={onToggleJetBlack}
+          title={isJetBlack ? 'Switch to Obsidian Slate Texture' : 'Switch to Futuristic Jet Black Mode (Removes texture for pure neon contrast)'}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono border transition-all ${
+            isJetBlack
+              ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.3)] font-semibold'
+              : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+          }`}
+        >
+          <Sparkles className={`w-3.5 h-3.5 ${isJetBlack ? 'text-cyan-400' : 'text-white/40'}`} />
+          <span className="hidden xl:inline">{isJetBlack ? 'Jet Black' : 'Obsidian'}</span>
         </button>
 
         {/* Real-Time Session Recorder */}
@@ -339,5 +431,20 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
     </header>
+
+      {/* Expanded Audio Seek Timeline Drawer */}
+      {isTimelineOpen && (
+        <PlaybackTimeline
+          playbackState={playbackState}
+          onClose={() => toggleTimeline()}
+          onUploadClick={() => fileInputRef.current?.click()}
+          onStartDemoClick={async () => {
+            if (!playbackState.isDemoActive) {
+              await audioEngine.startDemo();
+            }
+          }}
+        />
+      )}
+    </div>
   );
 };

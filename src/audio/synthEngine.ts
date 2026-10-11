@@ -51,8 +51,22 @@ export class DemoSynthEngine {
     }
   }
 
+  private onStepCallback: ((step: number) => void) | null = null;
+
   public setStemMutes(mutes: DemoStemMutes): void {
     this.stemMutes = { ...mutes };
+  }
+
+  public setOnStepCallback(cb: ((step: number) => void) | null): void {
+    this.onStepCallback = cb;
+  }
+
+  public jumpToStep(step: number): void {
+    this.currentStep = ((Math.floor(step) % 64) + 64) % 64;
+  }
+
+  public getCurrentStep(): number {
+    return this.currentStep;
   }
 
   public start(): void {
@@ -72,6 +86,9 @@ export class DemoSynthEngine {
 
   public reset(): void {
     this.currentStep = 0;
+    if (this.onStepCallback) {
+      this.onStepCallback(0);
+    }
   }
 
   private scheduleNextStep(): void {
@@ -79,6 +96,10 @@ export class DemoSynthEngine {
 
     const step = this.currentStep;
     const now = this.ctx.currentTime;
+
+    if (this.onStepCallback) {
+      this.onStepCallback(step);
+    }
 
     // 1. DRUMS (16-step pattern)
     if (!this.stemMutes.drums) {

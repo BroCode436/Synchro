@@ -458,3 +458,6 @@ button:hover {
 .disabled\:opacity-50:disabled { opacity: 0.5; }
 .disabled\:cursor-not-allowed:disabled { cursor: not-allowed; }
 .disabled\:pointer-events-none:disabled { pointer-events: none; }
+
+.grid-cols-16 { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); }
+
