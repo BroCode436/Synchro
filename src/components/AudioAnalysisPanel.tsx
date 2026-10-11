@@ -1,13 +1,14 @@
 import React from 'react';
-import { AudioFrameData } from '../types/audio';
+import { AudioFrameData, AudioPlaybackState } from '../types/audio';
 import { Zap, Volume2, Music2, Gauge, Info } from 'lucide-react';
 
 interface AudioAnalysisPanelProps {
   data: AudioFrameData | null;
+  playbackState?: AudioPlaybackState;
   onClose: () => void;
 }
 
-export const AudioAnalysisPanel: React.FC<AudioAnalysisPanelProps> = ({ data, onClose }) => {
+export const AudioAnalysisPanel: React.FC<AudioAnalysisPanelProps> = ({ data, playbackState, onClose }) => {
   if (!data) return null;
 
   const bands = [
@@ -37,8 +38,37 @@ export const AudioAnalysisPanel: React.FC<AudioAnalysisPanelProps> = ({ data, on
         </button>
       </div>
 
+      {/* Audio Engine Status & Active Source */}
+      <div className="p-2 rounded-lg bg-white/5 border border-white/5 flex items-center justify-between text-[11px] my-2.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div
+            className={`w-2 h-2 rounded-full shrink-0 ${
+              playbackState?.isMicActive
+                ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                : playbackState?.isDemoActive
+                ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse'
+                : (playbackState?.sourceType === 'file' && playbackState?.isPlaying)
+                ? 'bg-indigo-400 shadow-[0_0_8px_#818cf8]'
+                : 'bg-amber-400/80 shadow-[0_0_6px_#f59e0b]'
+            }`}
+          />
+          <span className="truncate font-semibold text-white/90">
+            {playbackState?.isMicActive
+              ? 'Stage Mic / Line-In'
+              : playbackState?.isDemoActive
+              ? 'Demo Procedural Synth'
+              : playbackState?.sourceType === 'file'
+              ? (playbackState.fileName || 'Audio Track')
+              : 'No Active Audio Source'}
+          </span>
+        </div>
+        <span className="text-[10px] text-cyan-300 font-mono shrink-0 pl-2">
+          {data.sampleRate ? `${(data.sampleRate / 1000).toFixed(1)} kHz` : '44.1 kHz'}
+        </span>
+      </div>
+
       {/* Primary Metrics: BPM, RMS, Pitch */}
-      <div className="grid grid-cols-3 gap-2 my-3">
+      <div className="grid grid-cols-3 gap-2 mb-3">
         {/* BPM Estimate */}
         <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 flex flex-col justify-between">
           <span className="text-[10px] text-white/50 tracking-wider">EST. BPM</span>

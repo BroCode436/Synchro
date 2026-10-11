@@ -3,12 +3,20 @@ import { VisualSettings, PresetType, LogoBlendMode, CustomColorPalette } from '.
 import { COLOR_PALETTES } from '../visuals/palettes';
 import {
   Sliders, Palette, Layers, Sparkles, Eye, Shield, Tv, Image, Upload, RotateCcw,
-  Pipette, SunDim, Bookmark, Trash2, Check, Plus, FolderHeart
+  Pipette, SunDim, Bookmark, Trash2, Check, Plus, FolderHeart,
+  Copy, Star, Download, Share2, Edit2
 } from 'lucide-react';
 import {
   loadSavedPresets,
   saveUserPreset,
+  renameUserPreset,
+  duplicateUserPreset,
+  toggleFavoritePreset,
   deleteUserPreset,
+  exportPresetsJson,
+  importPresetsFromJson,
+  encodeSettingsToUrl,
+  restoreDefaultSettings,
   loadRecentLogos,
   saveRecentLogo,
   deleteRecentLogo,
@@ -32,8 +40,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const [activeTab, setActiveTab] = useState<'visuals' | 'colors' | 'systems' | 'backdrop'>('visuals');
   const [savedPresets, setSavedPresets] = useState<SavedPreset[]>(() => loadSavedPresets());
   const [newPresetName, setNewPresetName] = useState('');
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [editingPresetName, setEditingPresetName] = useState('');
+  const [shareToast, setShareToast] = useState<string | null>(null);
   const [recentLogos, setRecentLogos] = useState<StoredLogo[]>(() => loadRecentLogos());
   const logoUploadRef = useRef<HTMLInputElement | null>(null);
+  const presetImportRef = useRef<HTMLInputElement | null>(null);
 
   const presets: { id: PresetType; name: string; desc: string }[] = [
     { id: 'cymatics', name: 'Sacred Cymatics', desc: '6-fold harmonic radial mandala & cymatic nodal rings' },
@@ -114,16 +126,103 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     const updated = saveUserPreset(newPresetName.trim(), settings);
     setSavedPresets(updated);
     setNewPresetName('');
+    setShareToast(`Saved look "${newPresetName.trim()}"`);
+    setTimeout(() => setShareToast(null), 2500);
   };
 
   const handleLoadUserPreset = (preset: SavedPreset) => {
     onUpdateSettings(() => ({ ...preset.settings }));
   };
 
-  const handleDeleteUserPreset = (id: string, e: React.MouseEvent) => {
+  const handleStartRename = (preset: SavedPreset, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = deleteUserPreset(id);
+    setEditingPresetId(preset.id);
+    setEditingPresetName(preset.name);
+  };
+
+  const handleCommitRename = (id: string) => {
+    if (editingPresetName.trim()) {
+      const updated = renameUserPreset(id, editingPresetName.trim());
+      setSavedPresets(updated);
+    }
+    setEditingPresetId(null);
+  };
+
+  const handleDuplicatePreset = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = duplicateUserPreset(id);
     setSavedPresets(updated);
+  };
+
+  const handleToggleFavorite = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = toggleFavoritePreset(id);
+    setSavedPresets(updated);
+  };
+
+  const handleDeleteUserPreset = (preset: SavedPreset, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Delete saved preset "${preset.name}"?`)) {
+      const updated = deleteUserPreset(preset.id);
+      setSavedPresets(updated);
+    }
+  };
+
+  const handleExportAllPresets = () => {
+    const jsonStr = exportPresetsJson();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `synchro_presets_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShareToast('Presets exported to JSON');
+    setTimeout(() => setShareToast(null), 2500);
+  };
+
+  const handleImportPresetsFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const content = ev.target?.result as string;
+      if (content) {
+        const result = importPresetsFromJson(content);
+        if (result.success) {
+          setSavedPresets(loadSavedPresets());
+          setShareToast(`Imported ${result.count} preset(s) successfully!`);
+          setTimeout(() => setShareToast(null), 3000);
+        } else {
+          alert(`Failed to import presets: ${result.error || 'Invalid file format'}`);
+        }
+      }
+    };
+    reader.readAsText(file);
+    if (e.target) e.target.value = '';
+  };
+
+  const handleShareConfig = () => {
+    const url = encodeSettingsToUrl(settings);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        setShareToast('Share link copied to clipboard!');
+        setTimeout(() => setShareToast(null), 3000);
+      }).catch(() => {
+        prompt('Copy shareable configuration link:', url);
+      });
+    } else {
+      prompt('Copy shareable configuration link:', url);
+    }
+  };
+
+  const handleRestoreDefaults = () => {
+    if (confirm('Restore factory visual settings? (Custom saved presets will be preserved)')) {
+      onUpdateSettings(() => restoreDefaultSettings());
+      setShareToast('Restored default factory look');
+      setTimeout(() => setShareToast(null), 2500);
+    }
   };
 
 
@@ -223,6 +322,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 className="w-full accent-purple-400 bg-white/10 h-1.5 rounded-lg appearance-none cursor-pointer"
               />
             </div>
+
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-white/70">Temporal Smoothing / Responsiveness</span>
+                <span className="text-emerald-300 font-bold">{Math.round((settings.smoothing ?? 0.75) * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="0.95"
+                step="0.05"
+                value={settings.smoothing ?? 0.75}
+                onChange={e => {
+                  const val = parseFloat(e.target.value);
+                  onUpdateSettings(prev => ({ ...prev, smoothing: val }));
+                }}
+                className="w-full accent-emerald-400 bg-white/10 h-1.5 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
           </div>
 
           {/* Symmetrical Geometry Controls */}
@@ -296,7 +414,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
 
           {/* User Saved Stage Presets Section */}
-          <div className="pt-2 border-t border-white/10 space-y-2">
+          <div className="pt-2 border-t border-white/10 space-y-2.5">
+            {/* Share / Action Notification Toast */}
+            {shareToast && (
+              <div className="p-2 rounded-lg bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-[11px] font-semibold text-center animate-pulse">
+                {shareToast}
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/50 tracking-wider flex items-center gap-1.5">
                 <Bookmark className="w-3 h-3 text-cyan-400" />
@@ -304,6 +429,15 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </span>
               <span className="text-[9px] text-white/40">{savedPresets.length} saved</span>
             </div>
+
+            {/* Hidden file input for importing JSON */}
+            <input
+              ref={presetImportRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={handleImportPresetsFile}
+            />
 
             {/* Save Current Look Input */}
             <div className="flex gap-1.5">
@@ -327,18 +461,49 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
             {/* Saved Presets List */}
             {savedPresets.length > 0 && (
-              <div className="space-y-1 max-h-36 overflow-y-auto pr-0.5">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                 {savedPresets.map(preset => (
                   <div
                     key={preset.id}
-                    className="flex items-center justify-between p-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-white/15 text-xs group transition-all"
+                    className="flex items-center justify-between p-2 rounded-lg bg-white/5 border border-white/5 hover:border-white/15 text-xs group transition-all"
                   >
                     <div className="min-w-0 flex-1 pr-2">
-                      <span className="block font-semibold truncate text-white/90">{preset.name}</span>
-                      <span className="text-[9px] text-white/40 block">
-                        {new Date(preset.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {preset.settings.preset}
-                      </span>
+                      {editingPresetId === preset.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={editingPresetName}
+                            onChange={e => setEditingPresetName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleCommitRename(preset.id); }}
+                            className="w-full bg-black/60 border border-cyan-400/60 rounded px-1.5 py-0.5 text-xs text-white"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleCommitRename(preset.id)}
+                            className="p-1 text-emerald-400 hover:text-emerald-300"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={e => handleToggleFavorite(preset.id, e)}
+                              className={`p-0.5 transition-colors ${preset.isFavorite ? 'text-amber-400' : 'text-white/20 hover:text-amber-300'}`}
+                              title={preset.isFavorite ? 'Unfavorite' : 'Mark favorite'}
+                            >
+                              <Star className={`w-3 h-3 ${preset.isFavorite ? 'fill-amber-400' : ''}`} />
+                            </button>
+                            <span className="font-semibold truncate text-white/90">{preset.name}</span>
+                          </div>
+                          <span className="text-[9px] text-white/40 block pl-4">
+                            {new Date(preset.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {preset.settings.preset}
+                          </span>
+                        </div>
+                      )}
                     </div>
+
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleLoadUserPreset(preset)}
@@ -347,7 +512,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         Load
                       </button>
                       <button
-                        onClick={e => handleDeleteUserPreset(preset.id, e)}
+                        onClick={e => handleStartRename(preset, e)}
+                        className="p-1 rounded text-white/30 hover:text-cyan-300 hover:bg-white/10 transition-all"
+                        title="Rename preset"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={e => handleDuplicatePreset(preset.id, e)}
+                        className="p-1 rounded text-white/30 hover:text-purple-300 hover:bg-white/10 transition-all"
+                        title="Duplicate preset"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={e => handleDeleteUserPreset(preset, e)}
                         className="p-1 rounded text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all"
                         title="Delete preset"
                       >
@@ -358,6 +537,45 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 ))}
               </div>
             )}
+
+            {/* Presets Action Toolbar: Share, Export, Import, Reset */}
+            <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-1.5 text-[10px]">
+              <button
+                onClick={handleShareConfig}
+                title="Create a shareable URL containing your visual configuration"
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 transition-all font-semibold"
+              >
+                <Share2 className="w-3 h-3" />
+                <span>Share Link</span>
+              </button>
+
+              <button
+                onClick={handleExportAllPresets}
+                title="Export all saved presets as versioned JSON"
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-400/30 transition-all font-semibold"
+              >
+                <Download className="w-3 h-3" />
+                <span>Export JSON</span>
+              </button>
+
+              <button
+                onClick={() => presetImportRef.current?.click()}
+                title="Import preset configuration from JSON"
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 transition-all"
+              >
+                <Upload className="w-3 h-3" />
+                <span>Import JSON</span>
+              </button>
+
+              <button
+                onClick={handleRestoreDefaults}
+                title="Reset active visual settings to factory defaults"
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded bg-white/5 hover:bg-white/10 text-white/50 hover:text-amber-300 border border-white/10 transition-all"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Defaults</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

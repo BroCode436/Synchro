@@ -7,8 +7,8 @@ import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { audioEngine } from './audio/AudioEngine';
 import { VisualSettings, PerformanceMetrics } from './types/visual';
 import { AudioFrameData, AudioPlaybackState } from './types/audio';
-import { Mic, Radio, Tv, X } from 'lucide-react';
-import { loadActiveSettings, saveActiveSettings } from './utils/storage';
+import { Mic, Radio, Tv, X, Music, Sparkles } from 'lucide-react';
+import { loadActiveSettings, saveActiveSettings, decodeSettingsFromUrl } from './utils/storage';
 
 const INITIAL_SETTINGS: VisualSettings = {
   sensitivity: 1.15,
@@ -51,6 +51,19 @@ const INITIAL_SETTINGS: VisualSettings = {
 
 export const App: React.FC = () => {
   const [settings, setSettings] = useState<VisualSettings>(() => {
+    const urlConfig = decodeSettingsFromUrl();
+    if (urlConfig) {
+      return {
+        ...INITIAL_SETTINGS,
+        ...urlConfig,
+        activeSystems: { ...INITIAL_SETTINGS.activeSystems, ...(urlConfig.activeSystems || {}) },
+        postProcessing: { ...INITIAL_SETTINGS.postProcessing, ...(urlConfig.postProcessing || {}) },
+        logo: { ...INITIAL_SETTINGS.logo, ...(urlConfig.logo || {}) },
+        background: { ...INITIAL_SETTINGS.background, ...(urlConfig.background || {}) },
+        flanks: { ...INITIAL_SETTINGS.flanks, ...(urlConfig.flanks || {}) }
+      };
+    }
+
     const saved = loadActiveSettings();
     if (saved) {
       return {
@@ -84,6 +97,15 @@ export const App: React.FC = () => {
   // Mouse idle timer for Big Screen Mode
   const mouseTimerRef = useRef<number | null>(null);
 
+  // Toggle fullscreen
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  }, []);
+
   useEffect(() => {
     const handleMouseMove = () => {
       setIsMouseIdle(false);
@@ -98,8 +120,26 @@ export const App: React.FC = () => {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Do not capture keyboard shortcuts if focused on form elements
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
       if (e.key === 'Escape' && isBigScreenMode) {
         setIsBigScreenMode(false);
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        setIsBigScreenMode(prev => !prev);
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        audioEngine.togglePlayPause();
       }
     };
 
@@ -112,7 +152,7 @@ export const App: React.FC = () => {
         window.clearTimeout(mouseTimerRef.current);
       }
     };
-  }, [isBigScreenMode]);
+  }, [isBigScreenMode, toggleFullscreen]);
 
   // Latest DSP frame data for React UI (throttled to ~20fps to keep DOM fast)
   const [latestAudioData, setLatestAudioData] = useState<AudioFrameData | null>(null);
@@ -142,15 +182,6 @@ export const App: React.FC = () => {
     setPerfMetrics(metrics);
   }, []);
 
-  // Toggle fullscreen
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
-    } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
-    }
-  };
-
   const startWithMic = async () => {
     setHasStarted(true);
     try {
@@ -158,6 +189,11 @@ export const App: React.FC = () => {
     } catch {
       alert('Microphone access denied or unavailable.');
     }
+  };
+
+  const startWithDemo = async () => {
+    setHasStarted(true);
+    await audioEngine.startDemo();
   };
 
   return (
@@ -211,6 +247,7 @@ export const App: React.FC = () => {
       {!isBigScreenMode && showAnalysis && (
         <AudioAnalysisPanel
           data={latestAudioData}
+          playbackState={playbackState}
           onClose={() => setShowAnalysis(false)}
         />
       )}
@@ -254,20 +291,44 @@ export const App: React.FC = () => {
             </p>
 
             <div className="flex flex-col gap-2.5">
+              {/* Option 1: Instant Demo Synth (Zero setup required) */}
               <button
-                onClick={startWithMic}
-                className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-mono text-xs font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 shadow-[0_0_20px_rgba(16,185,129,0.25)] transition-all hover:scale-[1.02]"
+                onClick={startWithDemo}
+                className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-mono text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/50 shadow-[0_0_24px_rgba(6,182,212,0.3)] transition-all hover:scale-[1.02]"
               >
-                <Mic className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span>Start Live Stage Audio Input</span>
+                <Music className="w-4 h-4 text-cyan-400 animate-pulse" />
+                <span>Launch Demo Synth (Instant Audio & Visuals)</span>
+                <Sparkles className="w-3.5 h-3.5 text-cyan-300 ml-1" />
               </button>
 
+              {/* Option 2: Live Stage Microphone / Line-In */}
+              <button
+                onClick={startWithMic}
+                className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl font-mono text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 transition-all hover:scale-[1.01]"
+              >
+                <Mic className="w-4 h-4 text-emerald-400" />
+                <span>Connect Stage Mic / Line-In Audio</span>
+              </button>
+
+              {/* Option 3: Manual Enter */}
               <button
                 onClick={() => setHasStarted(true)}
-                className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl font-mono text-xs font-semibold bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 transition-all"
+                className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-xl font-mono text-xs font-medium bg-white/5 hover:bg-white/10 text-white/70 border border-white/10 transition-all"
               >
-                <span>Enter Directly (Upload File / Stage Config)</span>
+                <span>Enter Directly (Upload Audio File / Manual Config)</span>
               </button>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-center gap-2 text-[10px] font-mono text-white/40">
+              <span>Shortcuts:</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">F</kbd>
+              <span>Fullscreen</span>
+              <span>•</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">Space</kbd>
+              <span>Play/Pause</span>
+              <span>•</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300">B</kbd>
+              <span>Cinema Mode</span>
             </div>
 
             <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-center gap-1.5 text-[10px] font-mono text-white/40">

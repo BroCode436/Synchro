@@ -28,10 +28,10 @@ export class OnsetDetector {
     let flux = 0;
     const maxBin = Math.min(bins, Math.floor(bins * 0.75));
 
-    for (let i = 2; i < maxBin; i++) {
+    for (let i = 0; i < maxBin; i++) {
       const currentVal = spectrum[i] / 255;
       const diff = currentVal - this.prevSpectrum[i];
-      if (diff > 0) {
+      if (diff > 0 && i >= 2) {
         // Weight low-to-mid frequencies slightly higher for drum hits
         const weight = i < bins * 0.15 ? 1.5 : (i < bins * 0.4 ? 1.2 : 0.8);
         flux += diff * weight;
@@ -39,7 +39,7 @@ export class OnsetDetector {
       this.prevSpectrum[i] = currentVal;
     }
 
-    flux /= (maxBin - 2);
+    flux /= Math.max(1, maxBin - 2);
 
     // 2. Maintain sliding window of flux values
     this.fluxHistory.push(flux);

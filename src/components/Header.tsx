@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Mic,
   MicOff,
@@ -11,10 +11,15 @@ import {
   Maximize2,
   Minimize2,
   Radio,
-  Tv
+  Tv,
+  Music,
+  Circle,
+  Square,
+  Video
 } from 'lucide-react';
 import { AudioPlaybackState } from '../types/audio';
 import { audioEngine } from '../audio/AudioEngine';
+import { sessionRecorder, RecordingStatus } from '../utils/recorder';
 
 interface HeaderProps {
   playbackState: AudioPlaybackState;
@@ -42,6 +47,42 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleBigScreen
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>({
+    isRecording: false,
+    durationSeconds: 0,
+    hasAudio: false,
+    mimeType: ''
+  });
+  const [recordNotice, setRecordNotice] = useState<string | null>(null);
+
+  const handleToggleRecord = async () => {
+    if (recordingStatus.isRecording) {
+      const result = await sessionRecorder.stop();
+      setRecordingStatus({ isRecording: false, durationSeconds: 0, hasAudio: false, mimeType: '' });
+      if (result) {
+        const a = document.createElement('a');
+        a.href = result.url;
+        a.download = result.filename;
+        a.click();
+        setRecordNotice(`Saved: ${result.filename} (${result.durationSeconds}s)`);
+        setTimeout(() => setRecordNotice(null), 4500);
+        setTimeout(() => URL.revokeObjectURL(result.url), 10000);
+      }
+    } else {
+      const canvas = document.getElementById('synchro-canvas') as HTMLCanvasElement | null;
+      if (!canvas) {
+        alert('Could not find visualization canvas element.');
+        return;
+      }
+      const res = await sessionRecorder.start(canvas, (status) => setRecordingStatus(status));
+      if (!res.success) {
+        alert(`Recording error: ${res.error || 'Failed to start recording'}`);
+      } else {
+        setRecordNotice(`Recording started (${res.hasAudio ? 'Video + Mixed Audio' : 'Video Only'})`);
+        setTimeout(() => setRecordNotice(null), 3000);
+      }
+    }
+  };
 
   const handleStartMic = async () => {
     try {
@@ -96,23 +137,49 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="hidden md:flex items-center gap-2 pl-4 border-l border-white/10">
           <div
             className={`w-2 h-2 rounded-full ${
-              playbackState.isMicActive || (playbackState.sourceType === 'file' && playbackState.isPlaying)
+              playbackState.isMicActive
                 ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                : playbackState.isDemoActive
+                ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse'
+                : (playbackState.sourceType === 'file' && playbackState.isPlaying)
+                ? 'bg-indigo-400 shadow-[0_0_8px_#818cf8]'
                 : 'bg-amber-400/80 shadow-[0_0_6px_#f59e0b]'
             }`}
           />
           <span className="text-[11px] font-mono uppercase tracking-wider text-white/70">
             {playbackState.isMicActive
               ? 'Live Stage Input (Active)'
+              : playbackState.isDemoActive
+              ? 'Procedural Synth (120 BPM • D Minor)'
               : playbackState.sourceType === 'file'
               ? (playbackState.isPlaying ? `Playing: ${playbackState.fileName}` : `Paused: ${playbackState.fileName}`)
-              : 'Awaiting Audio (Click Mic / Stage Input)'}
+              : 'Awaiting Audio (Select Mic / Synth / File)'}
           </span>
         </div>
       </div>
 
       {/* Input Sources & Playback Controls */}
       <div className="flex items-center gap-2">
+        {/* Built-in Generative Synth Demo Button */}
+        <button
+          onClick={() => {
+            if (playbackState.isDemoActive) {
+              audioEngine.stopDemo();
+            } else {
+              audioEngine.startDemo();
+            }
+          }}
+          title="Toggle Built-in Procedural Generative Synthesizer (120 BPM • D Minor)"
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono font-medium border transition-all ${
+            playbackState.isDemoActive
+              ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-300 shadow-[0_0_14px_rgba(6,182,212,0.3)] font-semibold'
+              : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
+          }`}
+        >
+          <Music className={`w-3.5 h-3.5 ${playbackState.isDemoActive ? 'text-cyan-400 animate-pulse' : 'text-cyan-300/70'}`} />
+          <span>{playbackState.isDemoActive ? 'Demo Playing' : 'Demo Synth'}</span>
+        </button>
+
         {/* Live Stage Input (Microphone / Line-In) Button */}
         <button
           onClick={handleStartMic}
@@ -198,6 +265,36 @@ export const Header: React.FC<HeaderProps> = ({
           <Activity className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Analysis</span>
         </button>
+
+        {/* Real-Time Session Recorder */}
+        {recordingStatus.isRecording ? (
+          <button
+            onClick={handleToggleRecord}
+            title="Stop recording session"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold bg-red-500/20 border border-red-500/60 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse transition-all"
+          >
+            <Square className="w-3 h-3 text-red-400 fill-red-400" />
+            <span>REC {Math.floor(recordingStatus.durationSeconds / 60)}:{(recordingStatus.durationSeconds % 60).toString().padStart(2, '0')}</span>
+            <span className="text-[9px] px-1 py-0.5 rounded bg-black/50 text-white/70">
+              {recordingStatus.hasAudio ? 'A+V' : 'Video'}
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={handleToggleRecord}
+            title="Record stage visualization and audio to video"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono border bg-white/5 border-white/10 text-white/70 hover:text-red-400 hover:border-red-400/40 hover:bg-red-500/10 transition-all"
+          >
+            <Circle className="w-3 h-3 text-red-500 fill-red-500" />
+            <span className="hidden sm:inline">Record</span>
+          </button>
+        )}
+
+        {recordNotice && (
+          <span className="hidden lg:inline text-[10px] font-mono text-cyan-300 animate-pulse bg-cyan-500/10 border border-cyan-400/30 px-2 py-1 rounded">
+            {recordNotice}
+          </span>
+        )}
 
         <button
           onClick={() => setShowControls(!showControls)}

@@ -31,11 +31,24 @@ export class DemoSynthEngine {
     [220.00, 329.63, 440.00]  // Am (A3, E4, A4)
   ];
 
+  // Pre-allocated noise buffer for percussion (reused across all snare & hi-hat hits)
+  private noiseBuffer: AudioBuffer | null = null;
+
   constructor(audioContext: AudioContext, destination: AudioNode) {
     this.ctx = audioContext;
     this.outputNode = this.ctx.createGain();
     this.outputNode.gain.value = 0.85;
     this.outputNode.connect(destination);
+    this.initNoiseBuffer();
+  }
+
+  private initNoiseBuffer(): void {
+    const bufferSize = Math.floor(this.ctx.sampleRate * 1.0); // 1 second of white noise
+    this.noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = this.noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
   }
 
   public setStemMutes(mutes: DemoStemMutes): void {
@@ -136,16 +149,10 @@ export class DemoSynthEngine {
   }
 
   private triggerSnare(time: number): void {
-    // Noise buffer
-    const bufferSize = this.ctx.sampleRate * 0.2;
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
+    if (!this.noiseBuffer) return;
 
     const noise = this.ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = this.noiseBuffer;
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'highpass';
@@ -179,15 +186,10 @@ export class DemoSynthEngine {
   }
 
   private triggerHiHat(time: number, velocity: number): void {
-    const bufferSize = this.ctx.sampleRate * 0.05;
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
+    if (!this.noiseBuffer) return;
 
     const noise = this.ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = this.noiseBuffer;
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'highpass';

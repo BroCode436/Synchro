@@ -144,7 +144,35 @@ The analysis engine labels signals honestly:
 
 ---
 
-## 6. Setup & Execution
+## 7. Keyboard Shortcuts & Stage Performance Controls
+
+Synchro supports zero-latency hardware keyboard shortcuts:
+- **`F` / `f`:** Toggle browser Fullscreen mode
+- **`B` / `b`:** Toggle Big Screen / Cinema Exhibition Mode (hides all UI chrome)
+- **`Space`:** Toggle Play / Pause for the active audio track or procedural synthesizer
+- **`Escape`:** Instantly exit Big Screen mode and restore control panels
+
+---
+
+## 8. Real-Time Video & Synchronized Audio Recording
+
+Synchro features native in-browser session recording powered by `HTMLCanvasElement.captureStream(60)` and `MediaRecorder`:
+- **60 FPS Video Capture:** Directly captures the high-DPI generative visual output at 6 Mbps.
+- **Synchronous Audio Mixing:** Mixes master audio output (procedural synth or audio file) and live microphone stream via a Web Audio `MediaStreamDestinationNode`.
+- **Automatic Codec Negotiation:** Automatically negotiates optimal hardware-accelerated video codecs (`video/webm;codecs=vp9,opus`, `video/webm`, or `video/mp4`).
+- **One-Click Download:** Automatically packages and downloads the session file on stop with zero server dependencies.
+
+---
+
+## 9. Preset Management & Shareable URL Configurations
+
+- **Saved Stage Looks:** Save, rename, duplicate, and star your favorite visualizer configurations.
+- **JSON Import / Export:** Export all presets or individual looks as version-controlled, validated JSON schemas (`schemaVersion: 1`).
+- **Instant URL Sharing:** Encode complete visual configurations into a secure, compact URL hash (`#config=...`) to share looks with other musicians, VJs, and stages without a database or backend.
+
+---
+
+## 10. Setup & Execution
 
 ### Prerequisites
 - Node.js (v18+ or v20+ recommended)
@@ -165,7 +193,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 ```bash
 npm test
 ```
-Runs unit tests validating normalized autocorrelation pitch estimation, silence rejection, and tempo clustering.
+Runs unit tests validating normalized autocorrelation pitch estimation, silence rejection, tempo clustering, spectral flux transient onset detection, visual settings schema validation, and URL sharing encoding/decoding.
 
 ### Production Build
 ```bash
@@ -175,7 +203,7 @@ Creates an optimized, tree-shaken static production bundle in `dist/`.
 
 ---
 
-## 7. Performance & Latency Metrics
+## 11. Performance & Latency Metrics
 
 - **Canvas 2D Render Duration:** $\sim 1.0 - 2.5\text{ ms}$ per frame.
 - **Audio DSP Analysis Duration:** $\sim 0.3 - 0.7\text{ ms}$ per frame.

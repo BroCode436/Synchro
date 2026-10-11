@@ -86,6 +86,13 @@ export class VisualEngine {
     const sensitivity = settings.sensitivity;
     const folds = Math.max(2, settings.symmetryFolds || 6);
     const isBilateral = settings.symmetryMode === 'bilateral';
+    const bloom = settings.postProcessing?.bloomGlow !== false;
+
+    // Responsive smoothing rate controlled by user smoothing slider
+    const smoothingVal = settings.smoothing ?? 0.75;
+    const bassSmoothRate = Math.max(0.04, Math.min(0.35, 0.28 - smoothingVal * 0.20));
+    const centroidSmoothRate = Math.max(0.02, Math.min(0.20, 0.16 - smoothingVal * 0.12));
+    const pitchSmoothRate = Math.max(0.05, Math.min(0.40, 0.32 - smoothingVal * 0.18));
 
     // Scaled responsive inputs
     const scaledRms = Math.min(1.0, audio.rms * sensitivity);
@@ -93,11 +100,11 @@ export class VisualEngine {
     const scaledMid = Math.min(1.0, (audio.lowMid * 0.5 + audio.mid * 0.5) * sensitivity);
     const scaledHigh = Math.min(1.0, (audio.highMid * 0.4 + audio.high * 0.6) * sensitivity);
 
-    this.smoothedBass += (scaledBass - this.smoothedBass) * 0.12;
-    this.smoothedCentroid += (audio.spectralCentroid - this.smoothedCentroid) * 0.06;
+    this.smoothedBass += (scaledBass - this.smoothedBass) * bassSmoothRate;
+    this.smoothedCentroid += (audio.spectralCentroid - this.smoothedCentroid) * centroidSmoothRate;
 
     if (audio.estimatedPitch && audio.pitchConfidence > 0.55) {
-      this.smoothedPitch += (audio.estimatedPitch - this.smoothedPitch) * 0.18;
+      this.smoothedPitch += (audio.estimatedPitch - this.smoothedPitch) * pitchSmoothRate;
       this.pitchBend = Math.sin(timeMs * 0.008) * (audio.pitchConfidence > 0.8 ? 0.08 : 0);
     }
 
@@ -230,17 +237,17 @@ export class VisualEngine {
 
     // 6. SYSTEM D: BASS FIELD (Cymatic Radial Resonance & Breathing Rings)
     if (settings.activeSystems.bass) {
-      this.renderCymaticBassField(ctx, cx, cy, maxRadius, this.smoothedBass, intensity, palette, dt, folds, isBilateral);
+      this.renderCymaticBassField(ctx, cx, cy, maxRadius, this.smoothedBass, intensity, palette, dt, folds, isBilateral, timeMs, bloom);
     }
 
     // 7. SYSTEM C: HARMONIC GEOMETRY (Sacred Mandalas & Rotating Crystalline Wireframes)
     if (settings.activeSystems.harmonic) {
-      this.renderSacredHarmonicMandala(ctx, cx, cy, maxRadius, scaledMid, this.smoothedCentroid, intensity, palette, dt, folds, isBilateral);
+      this.renderSacredHarmonicMandala(ctx, cx, cy, maxRadius, scaledMid, this.smoothedCentroid, intensity, palette, dt, folds, isBilateral, timeMs, bloom);
     }
 
     // 8. SYSTEM A: MELODIC RIBBONS (Extravagant Symmetrical Spirals & Gossamer Tendrils)
     if (settings.activeSystems.melodic) {
-      this.renderSymmetricMelodicFilaments(ctx, cx, cy, maxRadius, audio, this.smoothedPitch, intensity, palette, dt, folds, isBilateral);
+      this.renderSymmetricMelodicFilaments(ctx, cx, cy, maxRadius, audio, this.smoothedPitch, intensity, palette, dt, folds, isBilateral, timeMs, bloom);
     }
 
     // 9. SYSTEM B: PERCUSSION IMPACTS (Crystalline Starlight Shockbursts)
@@ -269,7 +276,9 @@ export class VisualEngine {
     palette: ReturnType<typeof getPalette>,
     dt: number,
     folds: number,
-    isBilateral: boolean
+    isBilateral: boolean,
+    timeMs: number,
+    bloom = true
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -282,7 +291,7 @@ export class VisualEngine {
     this.orbitalPhase += (0.4 + normPitch * 1.5) * dt;
 
     // Micro-vibrato ripples
-    const vibrato = audio.pitchConfidence > 0.7 ? Math.sin(performance.now() * 0.015) * 8 : 0;
+    const vibrato = audio.pitchConfidence > 0.7 ? Math.sin(timeMs * 0.015) * 8 : 0;
     const currentRadius = targetOrbit + vibrato;
 
     // Draw symmetrical ribbons radiating in each fold sector
@@ -336,7 +345,7 @@ export class VisualEngine {
 
       // Outer ethereal glow (subtle and fine)
       ctx.shadowColor = palette.colors.melodic;
-      ctx.shadowBlur = (6 + melodicEnergy * 14) * intensity;
+      ctx.shadowBlur = bloom ? (6 + melodicEnergy * 14) * intensity : 0;
       ctx.strokeStyle = palette.colors.melodic;
       ctx.lineWidth = Math.max(0.6, (0.8 + melodicEnergy * 1.4) * intensity);
       ctx.globalAlpha = Math.min(0.85, 0.4 + melodicEnergy * 0.5);
@@ -466,7 +475,9 @@ export class VisualEngine {
     palette: ReturnType<typeof getPalette>,
     dt: number,
     folds: number,
-    isBilateral: boolean
+    isBilateral: boolean,
+    timeMs: number,
+    bloom = true
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -490,7 +501,7 @@ export class VisualEngine {
       for (let p = 0; p <= petalPoints; p++) {
         const theta = layerRot + (p / petalPoints) * Math.PI * 2;
         // Harmonic petal oscillation
-        const petalDistort = 1 + Math.sin(theta * sides + performance.now() * 0.002) * (0.12 + midEnergy * 0.2);
+        const petalDistort = 1 + Math.sin(theta * sides + timeMs * 0.002) * (0.12 + midEnergy * 0.2);
         const r = layerRadius * petalDistort;
         const px = cx + Math.cos(theta) * r;
         const py = cy + Math.sin(theta) * r;
@@ -502,7 +513,7 @@ export class VisualEngine {
 
       // Outer Glow Pass
       ctx.shadowColor = palette.colors.harmonic;
-      ctx.shadowBlur = (6 + midEnergy * 15) * intensity;
+      ctx.shadowBlur = bloom ? (6 + midEnergy * 15) * intensity : 0;
       ctx.strokeStyle = palette.colors.harmonic;
       ctx.lineWidth = Math.max(0.6, (0.8 + midEnergy * 1.4) * intensity);
       ctx.globalAlpha = Math.min(0.85, 0.35 + midEnergy * 0.5);
@@ -540,14 +551,16 @@ export class VisualEngine {
     palette: ReturnType<typeof getPalette>,
     dt: number,
     folds: number,
-    isBilateral: boolean
+    isBilateral: boolean,
+    timeMs: number,
+    bloom = true
   ): void {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
 
     // Cymatic standing-wave nodal rings
     const ringCount = Math.round(5 * intensity);
-    const wavePhase = performance.now() * 0.0018 * (1 + bassEnergy * 2);
+    const wavePhase = timeMs * 0.0018 * (1 + bassEnergy * 2);
 
     for (let r = 0; r < ringCount; r++) {
       const normR = (r + 1) / (ringCount + 1);
@@ -572,7 +585,7 @@ export class VisualEngine {
 
       // Outer Deep Bass Glow
       ctx.shadowColor = palette.colors.bass;
-      ctx.shadowBlur = (8 + bassEnergy * 20) * intensity;
+      ctx.shadowBlur = bloom ? (8 + bassEnergy * 20) * intensity : 0;
       ctx.strokeStyle = palette.colors.bass;
       ctx.lineWidth = Math.max(0.6, (0.8 + bassEnergy * 2.2) * intensity);
       ctx.globalAlpha = Math.min(0.75, 0.25 + bassEnergy * 0.5);

@@ -17,6 +17,12 @@ export class AudioEngine {
   private micSource: MediaStreamAudioSourceNode | null = null;
   private audioElement: HTMLAudioElement | null = null;
   private fileSourceNode: MediaElementAudioSourceNode | null = null;
+  private currentObjectUrl: string | null = null;
+  private audioListeners: {
+    timeupdate?: () => void;
+    loadedmetadata?: () => void;
+    ended?: () => void;
+  } = {};
   private demoSynth: DemoSynthEngine | null = null;
 
   // Analysis modules
@@ -66,16 +72,14 @@ export class AudioEngine {
       this.analyser.maxDecibels = -10;
 
       this.masterGain.connect(this.analyser);
-      // Analyser connects to destination so user can hear demo & file, but mic must NOT feedback to speakers!
-      // We will route mic only to analyser.
+      this.masterGain.connect(this.ctx.destination);
 
       this.timeDomainBuffer = new Float32Array(this.analyser.fftSize);
       this.frequencyBuffer = new Uint8Array(this.analyser.frequencyBinCount);
 
-      // Create demo synth connected to masterGain and speaker
+      // Create demo synth connected to masterGain
       const synthBus = this.ctx.createGain();
       synthBus.connect(this.masterGain);
-      synthBus.connect(this.ctx.destination);
       this.demoSynth = new DemoSynthEngine(this.ctx, synthBus);
     }
 
@@ -183,29 +187,41 @@ export class AudioEngine {
 
     if (!this.ctx || !this.masterGain) return;
 
-    const fileUrl = URL.createObjectURL(file);
-    const audio = new Audio(fileUrl);
+    if (this.currentObjectUrl) {
+      URL.revokeObjectURL(this.currentObjectUrl);
+      this.currentObjectUrl = null;
+    }
+
+    this.currentObjectUrl = URL.createObjectURL(file);
+    const audio = new Audio(this.currentObjectUrl);
     audio.crossOrigin = 'anonymous';
     audio.loop = true;
 
-    audio.addEventListener('timeupdate', () => {
+    const onTimeUpdate = () => {
       this.playbackState.currentTime = audio.currentTime;
       this.notifyState();
-    });
-
-    audio.addEventListener('loadedmetadata', () => {
+    };
+    const onLoadedMetadata = () => {
       this.playbackState.duration = audio.duration;
       this.notifyState();
-    });
-
-    audio.addEventListener('ended', () => {
+    };
+    const onEnded = () => {
       this.playbackState.isPlaying = false;
       this.notifyState();
-    });
+    };
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('ended', onEnded);
+    this.audioListeners = {
+      timeupdate: onTimeUpdate,
+      loadedmetadata: onLoadedMetadata,
+      ended: onEnded
+    };
 
     this.fileSourceNode = this.ctx.createMediaElementSource(audio);
+    // Connect to masterGain only (masterGain routes to analyser and destination)
     this.fileSourceNode.connect(this.masterGain);
-    this.fileSourceNode.connect(this.ctx.destination); // Play to speakers
 
     this.audioElement = audio;
     this.currentSource = 'file';
@@ -264,9 +280,24 @@ export class AudioEngine {
 
   public stopAudioFile(): void {
     if (this.audioElement) {
+      if (this.audioListeners.timeupdate) {
+        this.audioElement.removeEventListener('timeupdate', this.audioListeners.timeupdate);
+      }
+      if (this.audioListeners.loadedmetadata) {
+        this.audioElement.removeEventListener('loadedmetadata', this.audioListeners.loadedmetadata);
+      }
+      if (this.audioListeners.ended) {
+        this.audioElement.removeEventListener('ended', this.audioListeners.ended);
+      }
+      this.audioListeners = {};
+
       this.audioElement.pause();
       this.audioElement.src = '';
       this.audioElement = null;
+    }
+    if (this.currentObjectUrl) {
+      URL.revokeObjectURL(this.currentObjectUrl);
+      this.currentObjectUrl = null;
     }
     if (this.fileSourceNode) {
       this.fileSourceNode.disconnect();
@@ -430,6 +461,25 @@ export class AudioEngine {
 
   public getPlaybackState(): AudioPlaybackState {
     return { ...this.playbackState };
+  }
+
+  public getAudioContext(): AudioContext | null {
+    return this.ctx;
+  }
+
+  public getMasterGain(): GainNode | null {
+    return this.masterGain;
+  }
+
+  public getMicStream(): MediaStream | null {
+    return this.micStream;
+  }
+
+  public setMasterVolume(val: number): void {
+    if (this.masterGain && this.ctx) {
+      const clamped = Math.max(0, Math.min(1.5, val));
+      this.masterGain.gain.setValueAtTime(clamped, this.ctx.currentTime);
+    }
   }
 }
 
