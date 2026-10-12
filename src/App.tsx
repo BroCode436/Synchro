@@ -1,14 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { VisualCanvas } from './components/VisualCanvas';
 import { Header } from './components/Header';
 import { AudioAnalysisPanel } from './components/AudioAnalysisPanel';
-import { ControlPanel } from './components/ControlPanel';
 import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { audioEngine } from './audio/AudioEngine';
-import { VisualSettings, PerformanceMetrics } from './types/visual';
-import { AudioFrameData, AudioPlaybackState } from './types/audio';
+import { VisualSettings } from './types/visual';
+import { AudioPlaybackState } from './types/audio';
 import { Mic, Radio, Tv, X, Music, Sparkles } from 'lucide-react';
 import { loadActiveSettings, saveActiveSettings, decodeSettingsFromUrl } from './utils/storage';
+
+// Lazy load the heavy ControlPanel to keep initial bundle size lean and load times fast
+const ControlPanel = React.lazy(() =>
+  import('./components/ControlPanel').then(m => ({ default: m.ControlPanel }))
+);
 
 const INITIAL_SETTINGS: VisualSettings = {
   sensitivity: 1.15,
@@ -81,9 +85,12 @@ export const App: React.FC = () => {
     return INITIAL_SETTINGS;
   });
 
-  // Auto-persist active session settings to localStorage
+  // Debounce saving active settings to localStorage to prevent main thread blocking while dragging sliders
   useEffect(() => {
-    saveActiveSettings(settings);
+    const timer = setTimeout(() => {
+      saveActiveSettings(settings);
+    }, 350);
+    return () => clearTimeout(timer);
   }, [settings]);
 
   const [playbackState, setPlaybackState] = useState<AudioPlaybackState>(audioEngine.getPlaybackState());
@@ -190,32 +197,12 @@ export const App: React.FC = () => {
     };
   }, [isBigScreenMode, toggleFullscreen]);
 
-  // Latest DSP frame data for React UI (throttled to ~20fps to keep DOM fast)
-  const [latestAudioData, setLatestAudioData] = useState<AudioFrameData | null>(null);
-  const [perfMetrics, setPerfMetrics] = useState<PerformanceMetrics | null>(null);
-  const lastHudUpdateRef = useRef(0);
-
-  // Subscribe to audio engine playback state
+  // Subscribe to audio engine macro playback state changes
   useEffect(() => {
     const unsubscribe = audioEngine.subscribeState(state => {
       setPlaybackState(state);
     });
     return () => unsubscribe();
-  }, []);
-
-  // Callback from VisualCanvas RAF loop
-  const handleAudioFrame = useCallback((data: AudioFrameData) => {
-    const now = performance.now();
-    // Throttle React state update to ~25 FPS to prevent React render overhead
-    if (now - lastHudUpdateRef.current > 40) {
-      setLatestAudioData(data);
-      lastHudUpdateRef.current = now;
-    }
-  }, []);
-
-  // Callback for performance metrics
-  const handlePerfUpdate = useCallback((metrics: PerformanceMetrics) => {
-    setPerfMetrics(metrics);
   }, []);
 
   const startWithMic = async () => {
@@ -238,12 +225,8 @@ export const App: React.FC = () => {
         isBigScreenMode && isMouseIdle ? 'cursor-none' : ''
       }`}
     >
-      {/* Full-screen Generative Canvas Engine */}
-      <VisualCanvas
-        settings={settings}
-        onAudioFrame={handleAudioFrame}
-        onPerformanceUpdate={handlePerfUpdate}
-      />
+      {/* Full-screen Generative Canvas Engine (Completely isolated from React UI state) */}
+      <VisualCanvas settings={settings} />
 
       {/* Big Screen Mode Floating Exit Button */}
       {isBigScreenMode && (
@@ -283,35 +266,35 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Left: Live Audio Signal Analysis HUD */}
+      {/* Left: Live Audio Signal Analysis HUD (Self-subscribing, isolated re-renders) */}
       {!isBigScreenMode && showAnalysis && (
         <AudioAnalysisPanel
-          data={latestAudioData}
           playbackState={playbackState}
           onClose={() => setShowAnalysis(false)}
         />
       )}
 
-      {/* Right: Instrument Control & Preset Panel */}
+      {/* Right: Instrument Control & Preset Panel (Lazy-loaded and memoized) */}
       {!isBigScreenMode && showControls && (
-        <ControlPanel
-          settings={settings}
-          onUpdateSettings={setSettings}
-          onToggleBigScreen={() => setIsBigScreenMode(true)}
-          onClose={() => setShowControls(false)}
-        />
+        <Suspense fallback={null}>
+          <ControlPanel
+            settings={settings}
+            onUpdateSettings={setSettings}
+            onToggleBigScreen={() => setIsBigScreenMode(true)}
+            onClose={() => setShowControls(false)}
+          />
+        </Suspense>
       )}
 
-      {/* Bottom Left: Diagnostics & FPS Monitor */}
+      {/* Bottom Left: Diagnostics & FPS Monitor (Self-subscribing) */}
       {!isBigScreenMode && showPerf && (
         <PerformanceMonitor
-          metrics={perfMetrics}
-          sampleRate={latestAudioData?.sampleRate}
+          sampleRate={audioEngine.getAudioContext()?.sampleRate || 48000}
           onClose={() => setShowPerf(false)}
         />
       )}
 
-      {/* Splash Modal on First Load (Solves Browser AudioContext Autoplay Restriction) */}
+      {/* Splash Modal on First Load */}
       {!hasStarted && !playbackState.isPlaying && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-6">
           <div className="max-w-md w-full bg-[#07090f] border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_50px_rgba(6,182,212,0.15)] text-center">

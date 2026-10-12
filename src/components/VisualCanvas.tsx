@@ -3,6 +3,7 @@ import { audioEngine } from '../audio/AudioEngine';
 import { VisualEngine } from '../visuals/VisualEngine';
 import { VisualSettings, PerformanceMetrics } from '../types/visual';
 import { AudioFrameData } from '../types/audio';
+import { perfStore } from '../utils/perfStore';
 
 interface VisualCanvasProps {
   settings: VisualSettings;
@@ -10,7 +11,7 @@ interface VisualCanvasProps {
   onPerformanceUpdate?: (metrics: PerformanceMetrics) => void;
 }
 
-export const VisualCanvas: React.FC<VisualCanvasProps> = ({
+export const VisualCanvasComponent: React.FC<VisualCanvasProps> = ({
   settings,
   onAudioFrame,
   onPerformanceUpdate
@@ -23,7 +24,6 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
   const frameCountRef = useRef(0);
   const lastFpsTimeRef = useRef(performance.now());
   const currentFpsRef = useRef(60);
-  const lastFrameTimeRef = useRef(performance.now());
 
   // Store latest props in refs to avoid recreating RAF
   const settingsRef = useRef(settings);
@@ -57,13 +57,22 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
+    let isVisible = !document.hidden;
+
     // Main 60 FPS requestAnimationFrame loop
     const renderLoop = (timeMs: number) => {
-      const frameStart = performance.now();
+      if (!isVisible) {
+        animFrameIdRef.current = null;
+        return; // Pause loop when tab is hidden
+      }
 
       // 1. Audio DSP Analysis
       const audioData = audioEngine.analyzeFrame();
-      // Throttle React HUD updates to ~12 FPS (every 5th frame) to keep CPU focused on 60 FPS Canvas rendering!
+
+      // Notify decoupled subscribers (e.g. AudioAnalysisPanel) without triggering App re-renders
+      audioEngine.notifyFrame(audioData);
+
+      // Support backward-compatible callback prop if provided
       if (onAudioFrameRef.current && frameCountRef.current % 5 === 0) {
         onAudioFrameRef.current(audioData);
       }
@@ -83,27 +92,45 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
         frameCountRef.current = 0;
         lastFpsTimeRef.current = timeMs;
 
+        const metrics: PerformanceMetrics = {
+          fps: currentFpsRef.current,
+          renderTimeMs: Math.round(renderDuration * 10) / 10,
+          analysisTimeMs: Math.round(audioData.analysisTimeMs * 10) / 10,
+          totalLatencyEstimateMs: Math.round((audioData.analysisTimeMs + renderDuration + 16.6) * 10) / 10,
+          droppedFrames: Math.max(0, 60 - currentFpsRef.current)
+        };
+
+        // Decoupled pub/sub performance store
+        perfStore.emit(metrics);
+
+        // Support backward-compatible callback prop if provided
         if (onPerfRef.current) {
-          onPerfRef.current({
-            fps: currentFpsRef.current,
-            renderTimeMs: Math.round(renderDuration * 10) / 10,
-            analysisTimeMs: Math.round(audioData.analysisTimeMs * 10) / 10,
-            totalLatencyEstimateMs: Math.round((audioData.analysisTimeMs + renderDuration + 16.6) * 10) / 10,
-            droppedFrames: Math.max(0, 60 - currentFpsRef.current)
-          });
+          onPerfRef.current(metrics);
         }
       }
 
       animFrameIdRef.current = requestAnimationFrame(renderLoop);
     };
 
+    const handleVisibilityChange = () => {
+      isVisible = !document.hidden;
+      if (isVisible && animFrameIdRef.current === null) {
+        lastFpsTimeRef.current = performance.now();
+        frameCountRef.current = 0;
+        animFrameIdRef.current = requestAnimationFrame(renderLoop);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     animFrameIdRef.current = requestAnimationFrame(renderLoop);
 
     return () => {
       if (animFrameIdRef.current !== null) {
         cancelAnimationFrame(animFrameIdRef.current);
+        animFrameIdRef.current = null;
       }
       window.removeEventListener('resize', resizeCanvas);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -115,3 +142,5 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
     />
   );
 };
+
+export const VisualCanvas = React.memo(VisualCanvasComponent);

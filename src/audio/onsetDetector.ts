@@ -5,8 +5,8 @@ export class OnsetDetector {
   private fluxHistory: number[] = [];
   private historySize = 25;
   private lastOnsetTime = 0;
-  private minIntervalMs = 70; // Refractory period to avoid multi-triggering
-  private thresholdMultiplier = 1.6;
+  private minIntervalMs = 45; // Refractory period allowing rapid drum rolls and 16th notes
+  private thresholdMultiplier = 1.25; // Responsive threshold multiplier for punchy drum hits
 
   public detect(
     spectrum: Uint8Array,
@@ -53,18 +53,18 @@ export class OnsetDetector {
       sum += this.fluxHistory[i];
     }
     const meanFlux = sum / this.fluxHistory.length;
-    const threshold = meanFlux * this.thresholdMultiplier + 0.012;
+    const threshold = meanFlux * this.thresholdMultiplier + 0.007;
 
     // 4. Trigger detection with refractory lockout and minimum loudness check
     const timeSinceLast = currentTimeMs - this.lastOnsetTime;
-    const isOverThreshold = flux > threshold && currentRms > 0.03;
+    const isOverThreshold = flux > threshold && currentRms > 0.012;
     const isTransient = isOverThreshold && timeSinceLast > this.minIntervalMs;
 
     let strength = 0;
     if (isTransient) {
       this.lastOnsetTime = currentTimeMs;
       // Strength normalized relative to threshold
-      strength = Math.min(1.0, Math.max(0.2, (flux - threshold) * 5 + currentRms));
+      strength = Math.min(1.0, Math.max(0.35, (flux - threshold) * 6 + currentRms * 1.5));
     }
 
     return {

@@ -24,7 +24,7 @@ interface PlaybackTimelineProps {
   onStartDemoClick: () => void;
 }
 
-export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
+export const PlaybackTimelineComponent: React.FC<PlaybackTimelineProps> = ({
   playbackState,
   onClose,
   onUploadClick,
@@ -35,8 +35,18 @@ export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
   const [hoverPositionPx, setHoverPositionPx] = useState<number>(0);
 
-  const duration = playbackState.duration || (playbackState.sourceType === 'demo' ? 8.0 : 0);
-  const currentTime = Math.max(0, Math.min(playbackState.currentTime, duration || 0));
+  const [liveTime, setLiveTime] = useState(playbackState.currentTime);
+  const [liveDuration, setLiveDuration] = useState(playbackState.duration || (playbackState.sourceType === 'demo' ? 8.0 : 0));
+
+  useEffect(() => {
+    return audioEngine.subscribeTime((time, dur) => {
+      setLiveTime(time);
+      if (dur > 0) setLiveDuration(dur);
+    });
+  }, []);
+
+  const duration = liveDuration || (playbackState.sourceType === 'demo' ? 8.0 : 0);
+  const currentTime = Math.max(0, Math.min(liveTime, duration || 0));
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   const formatDetailedTime = (secs: number) => {
@@ -431,3 +441,5 @@ export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
     </div>
   );
 };
+
+export const PlaybackTimeline = React.memo(PlaybackTimelineComponent);

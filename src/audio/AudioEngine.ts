@@ -39,6 +39,42 @@ export class AudioEngine {
   private pitchFrameCount = 0;
   private cachedPitchResult: ReturnType<typeof detectPitch> = null;
 
+  // Cached DSP bins to avoid recalculations on every frame
+  private cachedSampleRate = 0;
+  private binHz = 0;
+  private subBassRange: [number, number, number] = [0, 0, 0];
+  private bassRange: [number, number, number] = [0, 0, 0];
+  private lowMidRange: [number, number, number] = [0, 0, 0];
+  private midRange: [number, number, number] = [0, 0, 0];
+  private highMidRange: [number, number, number] = [0, 0, 0];
+  private highRange: [number, number, number] = [0, 0, 0];
+
+  // Reusable audio frame data instance to eliminate garbage collection overhead during 60 FPS analysis
+  private reusableFrameData: AudioFrameData = {
+    rms: 0,
+    loudnessEnvelope: 0,
+    subBass: 0,
+    bass: 0,
+    lowMid: 0,
+    mid: 0,
+    highMid: 0,
+    high: 0,
+    spectralCentroid: 0,
+    spectralFlux: 0,
+    isTransient: false,
+    transientStrength: 0,
+    estimatedPitch: null,
+    pitchNote: null,
+    pitchConfidence: 0,
+    estimatedBpm: 120,
+    bpmConfidence: 0,
+    timeDomain: this.timeDomainBuffer,
+    frequencyData: this.frequencyBuffer,
+    sampleRate: 44100,
+    bufferSize: 2048,
+    analysisTimeMs: 0.1
+  };
+
   // State
   private currentSource: AudioSourceType = 'mic';
   private playbackState: AudioPlaybackState = {
@@ -52,6 +88,8 @@ export class AudioEngine {
   };
 
   private stateChangeListeners: ((state: AudioPlaybackState) => void)[] = [];
+  private frameListeners: ((data: AudioFrameData) => void)[] = [];
+  private timeListeners: ((time: number, duration: number) => void)[] = [];
 
   constructor() {
     // AudioContext will be initialized on user interaction or first start
@@ -76,6 +114,7 @@ export class AudioEngine {
 
       this.timeDomainBuffer = new Float32Array(this.analyser.fftSize);
       this.frequencyBuffer = new Uint8Array(this.analyser.frequencyBinCount);
+      this.updateBandBins(this.ctx.sampleRate);
 
       // Create demo synth connected to masterGain
       const synthBus = this.ctx.createGain();
@@ -83,9 +122,10 @@ export class AudioEngine {
       this.demoSynth = new DemoSynthEngine(this.ctx, synthBus);
       this.demoSynth.setOnStepCallback((step: number) => {
         if (this.currentSource === 'demo' && this.playbackState.isDemoActive) {
-          this.playbackState.currentTime = (step / 64) * 8.0;
+          const currentTime = (step / 64) * 8.0;
+          this.playbackState.currentTime = currentTime;
           this.playbackState.duration = 8.0;
-          this.notifyState();
+          this.notifyTime(currentTime, 8.0);
         }
       });
     }
@@ -208,7 +248,7 @@ export class AudioEngine {
 
     const onTimeUpdate = () => {
       this.playbackState.currentTime = audio.currentTime;
-      this.notifyState();
+      this.notifyTime(audio.currentTime, audio.duration || 0);
     };
     const onLoadedMetadata = () => {
       this.playbackState.duration = audio.duration;
@@ -299,6 +339,7 @@ export class AudioEngine {
       const clamped = Math.max(0, Math.min(timeSeconds, maxDuration));
       this.audioElement.currentTime = clamped;
       this.playbackState.currentTime = clamped;
+      this.notifyTime(clamped, this.playbackState.duration);
       this.notifyState();
     } else if (this.currentSource === 'demo' && this.demoSynth) {
       const loopDuration = 8.0;
@@ -307,6 +348,7 @@ export class AudioEngine {
       this.demoSynth.jumpToStep(step);
       this.playbackState.currentTime = normalized;
       this.playbackState.duration = loopDuration;
+      this.notifyTime(normalized, loopDuration);
       this.notifyState();
     }
   }
@@ -377,44 +419,54 @@ export class AudioEngine {
     const startTime = performance.now();
     const sampleRate = this.ctx ? this.ctx.sampleRate : 44100;
     const bufferSize = this.timeDomainBuffer.length;
+    const frame = this.reusableFrameData;
+
+    frame.sampleRate = sampleRate;
+    frame.bufferSize = bufferSize;
+    frame.timeDomain = this.timeDomainBuffer;
+    frame.frequencyData = this.frequencyBuffer;
 
     if (!this.analyser || (!this.playbackState.isPlaying && this.currentLoudnessEnvelope < 0.005)) {
-      // Idle / silent frame
-      return {
-        rms: 0,
-        loudnessEnvelope: 0,
-        subBass: 0,
-        bass: 0,
-        lowMid: 0,
-        mid: 0,
-        highMid: 0,
-        high: 0,
-        spectralCentroid: 0,
-        spectralFlux: 0,
-        isTransient: false,
-        transientStrength: 0,
-        estimatedPitch: null,
-        pitchNote: null,
-        pitchConfidence: 0,
-        estimatedBpm: this.bpmEstimator.getEstimate().bpm,
-        bpmConfidence: this.bpmEstimator.getEstimate().confidence,
-        timeDomain: this.timeDomainBuffer,
-        frequencyData: this.frequencyBuffer,
-        sampleRate,
-        bufferSize,
-        analysisTimeMs: 0.1
-      };
+      // Idle / silent frame (mutates reusable frame in-place to avoid GC allocations)
+      frame.rms = 0;
+      frame.loudnessEnvelope = 0;
+      frame.subBass = 0;
+      frame.bass = 0;
+      frame.lowMid = 0;
+      frame.mid = 0;
+      frame.highMid = 0;
+      frame.high = 0;
+      frame.spectralCentroid = 0;
+      frame.spectralFlux = 0;
+      frame.isTransient = false;
+      frame.transientStrength = 0;
+      frame.estimatedPitch = null;
+      frame.pitchNote = null;
+      frame.pitchConfidence = 0;
+      frame.estimatedBpm = this.bpmEstimator.getEstimate().bpm;
+      frame.bpmConfidence = this.bpmEstimator.getEstimate().confidence;
+      frame.analysisTimeMs = 0.1;
+      return frame;
     }
 
     // 1. Fetch current time-domain and frequency data
     this.analyser.getFloatTimeDomainData(this.timeDomainBuffer);
     this.analyser.getByteFrequencyData(this.frequencyBuffer);
 
-    // 2. Compute RMS amplitude
+    // 2. Compute RMS amplitude (unrolled 4x for SIMD register pipeline execution)
     let sumSq = 0;
-    for (let i = 0; i < bufferSize; i++) {
-      const val = this.timeDomainBuffer[i];
-      sumSq += val * val;
+    const len4 = bufferSize - 3;
+    let i = 0;
+    for (; i < len4; i += 4) {
+      const v0 = this.timeDomainBuffer[i];
+      const v1 = this.timeDomainBuffer[i + 1];
+      const v2 = this.timeDomainBuffer[i + 2];
+      const v3 = this.timeDomainBuffer[i + 3];
+      sumSq += v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3;
+    }
+    for (; i < bufferSize; i++) {
+      const v = this.timeDomainBuffer[i];
+      sumSq += v * v;
     }
     const currentRms = Math.sqrt(sumSq / bufferSize);
 
@@ -427,39 +479,36 @@ export class AudioEngine {
       this.currentLoudnessEnvelope += (currentRms - this.currentLoudnessEnvelope) * decayCoeff;
     }
 
-    // 3. Multi-band frequency extraction
-    // Frequency resolution per bin = sampleRate / fftSize (e.g. 44100 / 2048 = ~21.5 Hz per bin)
-    const binHz = sampleRate / (this.frequencyBuffer.length * 2);
+    this.updateBandBins(sampleRate);
 
-    const getBandEnergy = (minHz: number, maxHz: number): number => {
-      const startBin = Math.max(0, Math.floor(minHz / binHz));
-      const endBin = Math.min(this.frequencyBuffer.length - 1, Math.ceil(maxHz / binHz));
-      if (startBin >= endBin) return 0;
+    // 3. Multi-band frequency extraction using precomputed bin ranges
+    const subBass = this.getBandEnergyRange(this.subBassRange);
+    const bass = this.getBandEnergyRange(this.bassRange);
+    const lowMid = this.getBandEnergyRange(this.lowMidRange);
+    const mid = this.getBandEnergyRange(this.midRange);
+    const highMid = this.getBandEnergyRange(this.highMidRange);
+    const high = this.getBandEnergyRange(this.highRange);
 
-      let sum = 0;
-      for (let b = startBin; b <= endBin; b++) {
-        sum += this.frequencyBuffer[b];
-      }
-      return sum / ((endBin - startBin + 1) * 255);
-    };
-
-    const subBass = getBandEnergy(20, 80);
-    const bass = getBandEnergy(80, 250);
-    const lowMid = getBandEnergy(250, 800);
-    const mid = getBandEnergy(800, 2500);
-    const highMid = getBandEnergy(2500, 6000);
-    const high = getBandEnergy(6000, 16000);
-
-    // 4. Spectral Centroid
+    // 4. Spectral Centroid (unrolled 4x for fast accumulator math)
     let num = 0;
     let denom = 0;
-    for (let b = 1; b < this.frequencyBuffer.length; b++) {
-      const mag = this.frequencyBuffer[b];
-      const freq = b * binHz;
-      num += freq * mag;
-      denom += mag;
+    const freqLen = this.frequencyBuffer.length;
+    const freqLen4 = freqLen - 3;
+    let b = 1;
+    for (; b < freqLen4; b += 4) {
+      const m0 = this.frequencyBuffer[b];
+      const m1 = this.frequencyBuffer[b + 1];
+      const m2 = this.frequencyBuffer[b + 2];
+      const m3 = this.frequencyBuffer[b + 3];
+      num += b * m0 + (b + 1) * m1 + (b + 2) * m2 + (b + 3) * m3;
+      denom += m0 + m1 + m2 + m3;
     }
-    const spectralCentroid = denom > 0 ? num / denom : 0;
+    for (; b < freqLen; b++) {
+      const m = this.frequencyBuffer[b];
+      num += b * m;
+      denom += m;
+    }
+    const spectralCentroid = denom > 0 ? (num * this.binHz) / denom : 0;
 
     // 5. Transient / Onset Detection
     const now = performance.now();
@@ -484,33 +533,58 @@ export class AudioEngine {
 
     const analysisTimeMs = performance.now() - startTime;
 
-    return {
-      rms: currentRms,
-      loudnessEnvelope: this.currentLoudnessEnvelope,
-      subBass,
-      bass,
-      lowMid,
-      mid,
-      highMid,
-      high,
-      spectralCentroid,
-      spectralFlux: onsetResult.flux,
-      isTransient: onsetResult.isTransient,
-      transientStrength: onsetResult.strength,
-      estimatedPitch: pitchResult ? pitchResult.frequency : null,
-      pitchNote: pitchResult ? pitchResult.note : null,
-      pitchConfidence: pitchResult ? pitchResult.confidence : 0,
-      estimatedBpm: bpmData.bpm,
-      bpmConfidence: bpmData.confidence,
-      timeDomain: this.timeDomainBuffer,
-      frequencyData: this.frequencyBuffer,
-      sampleRate,
-      bufferSize,
-      analysisTimeMs
-    };
+    frame.rms = currentRms;
+    frame.loudnessEnvelope = this.currentLoudnessEnvelope;
+    frame.subBass = subBass;
+    frame.bass = bass;
+    frame.lowMid = lowMid;
+    frame.mid = mid;
+    frame.highMid = highMid;
+    frame.high = high;
+    frame.spectralCentroid = spectralCentroid;
+    frame.spectralFlux = onsetResult.flux;
+    frame.isTransient = onsetResult.isTransient;
+    frame.transientStrength = onsetResult.strength;
+    frame.estimatedPitch = pitchResult ? pitchResult.frequency : null;
+    frame.pitchNote = pitchResult ? pitchResult.note : null;
+    frame.pitchConfidence = pitchResult ? pitchResult.confidence : 0;
+    frame.estimatedBpm = bpmData.bpm;
+    frame.bpmConfidence = bpmData.confidence;
+    frame.analysisTimeMs = analysisTimeMs;
+
+    return frame;
   }
 
   // --- Subscriptions ---
+  public subscribeFrame(callback: (data: AudioFrameData) => void): () => void {
+    this.frameListeners.push(callback);
+    return () => {
+      this.frameListeners = this.frameListeners.filter(l => l !== callback);
+    };
+  }
+
+  public notifyFrame(data: AudioFrameData): void {
+    if (this.frameListeners.length === 0) return;
+    for (let i = 0; i < this.frameListeners.length; i++) {
+      this.frameListeners[i](data);
+    }
+  }
+
+  public subscribeTime(callback: (time: number, duration: number) => void): () => void {
+    this.timeListeners.push(callback);
+    callback(this.playbackState.currentTime, this.playbackState.duration);
+    return () => {
+      this.timeListeners = this.timeListeners.filter(l => l !== callback);
+    };
+  }
+
+  public notifyTime(time: number, duration: number): void {
+    if (this.timeListeners.length === 0) return;
+    for (let i = 0; i < this.timeListeners.length; i++) {
+      this.timeListeners[i](time, duration);
+    }
+  }
+
   public subscribeState(callback: (state: AudioPlaybackState) => void): () => void {
     this.stateChangeListeners.push(callback);
     callback({ ...this.playbackState });
@@ -522,6 +596,38 @@ export class AudioEngine {
   private notifyState(): void {
     const copy = { ...this.playbackState };
     this.stateChangeListeners.forEach(listener => listener(copy));
+  }
+
+  private updateBandBins(sampleRate: number): void {
+    if (this.cachedSampleRate === sampleRate && this.binHz > 0) return;
+    this.cachedSampleRate = sampleRate;
+    const binCount = this.frequencyBuffer.length;
+    this.binHz = sampleRate / (binCount * 2);
+
+    const calcRange = (minHz: number, maxHz: number): [number, number, number] => {
+      const start = Math.max(0, Math.floor(minHz / this.binHz));
+      const end = Math.min(binCount - 1, Math.ceil(maxHz / this.binHz));
+      const invSpan = start < end ? 1 / ((end - start + 1) * 255) : 0;
+      return [start, end, invSpan];
+    };
+
+    this.subBassRange = calcRange(20, 80);
+    this.bassRange = calcRange(80, 250);
+    this.lowMidRange = calcRange(250, 800);
+    this.midRange = calcRange(800, 2500);
+    this.highMidRange = calcRange(2500, 6000);
+    this.highRange = calcRange(6000, 16000);
+  }
+
+  private getBandEnergyRange(range: [number, number, number]): number {
+    const startBin = range[0];
+    const endBin = range[1];
+    if (startBin >= endBin) return 0;
+    let sum = 0;
+    for (let b = startBin; b <= endBin; b++) {
+      sum += this.frequencyBuffer[b];
+    }
+    return sum * range[2];
   }
 
   public getPlaybackState(): AudioPlaybackState {

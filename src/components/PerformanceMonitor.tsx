@@ -1,19 +1,27 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PerformanceMetrics } from '../types/visual';
+import { perfStore } from '../utils/perfStore';
 import { Cpu, X } from 'lucide-react';
 
 interface PerformanceMonitorProps {
-  metrics: PerformanceMetrics | null;
+  metrics?: PerformanceMetrics | null;
   sampleRate?: number;
   onClose: () => void;
 }
 
-export const PerformanceMonitor: React.FC<PerformanceMonitorProps> = ({
-  metrics,
+export const PerformanceMonitorComponent: React.FC<PerformanceMonitorProps> = ({
+  metrics: initialMetrics,
   sampleRate = 48000,
   onClose
 }) => {
-  if (!metrics) return null;
+  const [metrics, setMetrics] = useState<PerformanceMetrics | null>(initialMetrics || null);
+
+  useEffect(() => {
+    return perfStore.subscribe(m => setMetrics(m));
+  }, []);
+
+  const activeMetrics = metrics || initialMetrics;
+  if (!activeMetrics) return null;
 
   return (
     <div className="fixed bottom-6 left-6 z-20 w-80 bg-[#06080e]/92 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-4 text-white font-mono select-none text-xs">
@@ -39,10 +47,10 @@ export const PerformanceMonitor: React.FC<PerformanceMonitorProps> = ({
           <span className="text-white/60">Display Render FPS</span>
           <span
             className={`font-bold ${
-              metrics.fps >= 55 ? 'text-emerald-400' : 'text-amber-400'
+              activeMetrics.fps >= 55 ? 'text-emerald-400' : 'text-amber-400'
             }`}
           >
-            {metrics.fps} FPS
+            {activeMetrics.fps} FPS
           </span>
         </div>
 
@@ -50,7 +58,7 @@ export const PerformanceMonitor: React.FC<PerformanceMonitorProps> = ({
         <div className="flex justify-between items-center py-1 px-2 rounded bg-white/5">
           <span className="text-white/60">Canvas 2D Frame Render</span>
           <span className="font-bold text-cyan-300">
-            {metrics.renderTimeMs.toFixed(1)} ms
+            {activeMetrics.renderTimeMs.toFixed(1)} ms
           </span>
         </div>
 
@@ -58,7 +66,7 @@ export const PerformanceMonitor: React.FC<PerformanceMonitorProps> = ({
         <div className="flex justify-between items-center py-1 px-2 rounded bg-white/5">
           <span className="text-white/60">Audio DSP Analysis Frame</span>
           <span className="font-bold text-purple-300">
-            {metrics.analysisTimeMs.toFixed(1)} ms
+            {activeMetrics.analysisTimeMs.toFixed(1)} ms
           </span>
         </div>
 
@@ -66,7 +74,7 @@ export const PerformanceMonitor: React.FC<PerformanceMonitorProps> = ({
         <div className="flex justify-between items-center py-1 px-2 rounded bg-white/5">
           <span className="text-white/60">Total In-Engine Processing</span>
           <span className="font-bold text-amber-300">
-            {(metrics.renderTimeMs + metrics.analysisTimeMs).toFixed(1)} ms
+            {(activeMetrics.renderTimeMs + activeMetrics.analysisTimeMs).toFixed(1)} ms
           </span>
         </div>
 
@@ -80,8 +88,10 @@ export const PerformanceMonitor: React.FC<PerformanceMonitorProps> = ({
       {/* Latency Integrity Note */}
       <div className="p-2 rounded bg-white/5 border border-white/5 text-[10px] text-white/50 leading-relaxed">
         <span className="text-amber-400 font-semibold block mb-0.5">Honest Latency Note:</span>
-        In-engine DSP & draw loop run in ~{(metrics.renderTimeMs + metrics.analysisTimeMs).toFixed(1)}ms. End-to-end microphone latency also includes OS audio buffer (~10-25ms) and display frame presentation interval (~16.6ms).
+        In-engine DSP & draw loop run in ~{(activeMetrics.renderTimeMs + activeMetrics.analysisTimeMs).toFixed(1)}ms. End-to-end microphone latency also includes OS audio buffer (~10-25ms) and display frame presentation interval (~16.6ms).
       </div>
     </div>
   );
 };
+
+export const PerformanceMonitor = React.memo(PerformanceMonitorComponent);

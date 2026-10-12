@@ -297,9 +297,10 @@ input[type="range"] {
 .text-center { text-align: center; }
 .text-right { text-align: right; }
 
-.backdrop-blur-sm { backdrop-filter: blur(4px); }
-.backdrop-blur-md { backdrop-filter: blur(12px); }
-.backdrop-blur-xl { backdrop-filter: blur(24px); }
+.backdrop-blur-sm { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); transform: translateZ(0); }
+.backdrop-blur-md { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transform: translateZ(0); }
+.backdrop-blur-xl,
+.backdrop-blur-2xl { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); transform: translateZ(0); }
 
 .cursor-pointer { cursor: pointer; }
 .cursor-crosshair { cursor: crosshair; }

@@ -9,6 +9,9 @@ export interface PitchResult {
   confidence: number;
 }
 
+// Reusable prefix energy buffer to avoid repeated O(N) tau energy loops
+let prefixEnergyBuffer = new Float32Array(2049);
+
 export function detectPitch(
   buffer: Float32Array,
   sampleRate: number,
@@ -18,11 +21,18 @@ export function detectPitch(
 ): PitchResult | null {
   const bufferSize = buffer.length;
 
-  // 1. Calculate RMS to reject silence
-  let sumSq = 0;
-  for (let i = 0; i < bufferSize; i++) {
-    sumSq += buffer[i] * buffer[i];
+  if (prefixEnergyBuffer.length <= bufferSize) {
+    prefixEnergyBuffer = new Float32Array(bufferSize + 1);
   }
+
+  // 1. Single-pass RMS and prefix sum of squares
+  prefixEnergyBuffer[0] = 0;
+  for (let i = 0; i < bufferSize; i++) {
+    const val = buffer[i];
+    prefixEnergyBuffer[i + 1] = prefixEnergyBuffer[i] + val * val;
+  }
+
+  const sumSq = prefixEnergyBuffer[bufferSize];
   const rms = Math.sqrt(sumSq / bufferSize);
   if (rms < 0.015) {
     return null; // Signal too quiet
@@ -37,29 +47,25 @@ export function detectPitch(
   }
 
   // 3. Normalized square difference / autocorrelation
-  // Autocorrelation r(tau)
   let bestPeriod = -1;
   let maxCorr = -1;
 
-  // Calculate energy for normalization
-  let totalEnergy = 0;
-  for (let i = 0; i < bufferSize - maxPeriod; i++) {
-    totalEnergy += buffer[i] * buffer[i];
-  }
-
-  // Fast search window (capped at 512 samples with step 2 for ultra-fast correlation)
+  // Search window (capped at 640 samples with step 2 for fast correlation)
   const maxSearchLen = Math.min(640, bufferSize - maxPeriod);
+  const totalEnergy = prefixEnergyBuffer[maxSearchLen];
+
+  if (totalEnergy <= 0.0001) return null;
 
   for (let tau = minPeriod; tau <= maxPeriod; tau++) {
     let corr = 0;
-    let tauEnergy = 0;
     const len = Math.min(maxSearchLen, bufferSize - tau);
 
     for (let i = 0; i < len; i += 2) {
       corr += buffer[i] * buffer[i + tau];
-      tauEnergy += buffer[i + tau] * buffer[i + tau];
     }
 
+    // O(1) tau slice energy via prefix sums (replaces 320 multiplications per tau)
+    const tauEnergy = prefixEnergyBuffer[tau + len] - prefixEnergyBuffer[tau];
     const norm = Math.sqrt(totalEnergy * tauEnergy);
     const normalizedCorr = norm > 0.0001 ? corr / norm : 0;
 
@@ -77,9 +83,9 @@ export function detectPitch(
   // 4. Parabolic interpolation around the peak for fractional period accuracy
   let refinedPeriod = bestPeriod;
   if (bestPeriod > minPeriod && bestPeriod < maxPeriod) {
-    const y1 = calculateCorrAtTau(buffer, bestPeriod - 1);
+    const y1 = calculateCorrAtTauFast(buffer, bestPeriod - 1, maxSearchLen);
     const y2 = maxCorr;
-    const y3 = calculateCorrAtTau(buffer, bestPeriod + 1);
+    const y3 = calculateCorrAtTauFast(buffer, bestPeriod + 1, maxSearchLen);
 
     const denom = 2 * (2 * y2 - y1 - y3);
     if (Math.abs(denom) > 1e-5) {
@@ -112,16 +118,14 @@ export function detectPitch(
   };
 }
 
-function calculateCorrAtTau(buffer: Float32Array, tau: number): number {
+function calculateCorrAtTauFast(buffer: Float32Array, tau: number, maxSearchLen: number): number {
   let corr = 0;
-  let e1 = 0;
-  let e2 = 0;
-  const len = buffer.length - tau;
-  for (let i = 0; i < len; i++) {
+  const len = Math.min(maxSearchLen, buffer.length - tau);
+  for (let i = 0; i < len; i += 2) {
     corr += buffer[i] * buffer[i + tau];
-    e1 += buffer[i] * buffer[i];
-    e2 += buffer[i + tau] * buffer[i + tau];
   }
+  const e1 = prefixEnergyBuffer[len];
+  const e2 = prefixEnergyBuffer[tau + len] - prefixEnergyBuffer[tau];
   const norm = Math.sqrt(e1 * e2);
   return norm > 0.0001 ? corr / norm : 0;
 }

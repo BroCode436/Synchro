@@ -165,6 +165,11 @@ export class DemoSynthEngine {
     osc.connect(gain);
     gain.connect(this.outputNode);
 
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
+
     osc.start(time);
     osc.stop(time + 0.36);
   }
@@ -200,6 +205,17 @@ export class DemoSynthEngine {
     osc.connect(oscGain);
     oscGain.connect(this.outputNode);
 
+    noise.onended = () => {
+      noise.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+    };
+
+    osc.onended = () => {
+      osc.disconnect();
+      oscGain.disconnect();
+    };
+
     noise.start(time);
     osc.start(time);
     noise.stop(time + 0.23);
@@ -223,6 +239,12 @@ export class DemoSynthEngine {
     noise.connect(filter);
     filter.connect(gain);
     gain.connect(this.outputNode);
+
+    noise.onended = () => {
+      noise.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+    };
 
     noise.start(time);
     noise.stop(time + 0.07);
@@ -249,6 +271,12 @@ export class DemoSynthEngine {
     filter.connect(gain);
     gain.connect(this.outputNode);
 
+    osc.onended = () => {
+      osc.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+    };
+
     osc.start(time);
     osc.stop(time + 0.23);
   }
@@ -260,6 +288,7 @@ export class DemoSynthEngine {
     chordGain.gain.exponentialRampToValueAtTime(0.001, time + 1.2);
     chordGain.connect(this.outputNode);
 
+    let endedCount = 0;
     frequencies.forEach(f => {
       const osc = this.ctx.createOscillator();
       const filter = this.ctx.createBiquadFilter();
@@ -271,6 +300,15 @@ export class DemoSynthEngine {
 
       osc.connect(filter);
       filter.connect(chordGain);
+
+      osc.onended = () => {
+        osc.disconnect();
+        filter.disconnect();
+        endedCount++;
+        if (endedCount === frequencies.length) {
+          chordGain.disconnect();
+        }
+      };
 
       osc.start(time);
       osc.stop(time + 1.25);
@@ -305,6 +343,15 @@ export class DemoSynthEngine {
     osc.connect(filter);
     filter.connect(gain);
     gain.connect(this.outputNode);
+
+    osc.onended = () => {
+      lfo.stop();
+      lfo.disconnect();
+      lfoGain.disconnect();
+      osc.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+    };
 
     lfo.start(time);
     osc.start(time);

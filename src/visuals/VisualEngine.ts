@@ -16,6 +16,16 @@ interface ImpactBurst {
   color: string;
 }
 
+// Precomputed static trigonometry lookup tables for 90-segment cymatic bass ring geometry
+const BASS_SEGMENTS = 90;
+const STATIC_COS_90 = new Float32Array(BASS_SEGMENTS + 1);
+const STATIC_SIN_90 = new Float32Array(BASS_SEGMENTS + 1);
+for (let s = 0; s <= BASS_SEGMENTS; s++) {
+  const theta = (s / BASS_SEGMENTS) * Math.PI * 2;
+  STATIC_COS_90[s] = Math.cos(theta);
+  STATIC_SIN_90[s] = Math.sin(theta);
+}
+
 export class VisualEngine {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -41,6 +51,8 @@ export class VisualEngine {
   private leftTowerPeaks: number[] = new Array(36).fill(0);
   private rightTowerPeaks: number[] = new Array(36).fill(0);
   private constellationPhase = 0;
+  private reusableBandEnergies = new Float32Array(5);
+  private reusableConstellationNodes: [number, number][] = new Array(9).fill(null).map(() => [0, 0]);
 
   // Time tracking
   private lastTime = 0;
@@ -580,15 +592,15 @@ export class VisualEngine {
       const nodes = isBilateral ? 4 : folds;
 
       ctx.beginPath();
-      const segments = 90;
-      for (let s = 0; s <= segments; s++) {
-        const theta = (s / segments) * Math.PI * 2;
+      const waveAmplitude = Math.sin(wavePhase * (r + 1)) * (6 + bassEnergy * 28);
+      for (let s = 0; s <= BASS_SEGMENTS; s++) {
+        const theta = (s / BASS_SEGMENTS) * Math.PI * 2;
         // Cymatic nodal ripple equation: r = R0 + A * cos(n * theta) * sin(omega * t)
-        const ripple = Math.cos(theta * nodes) * Math.sin(wavePhase * (r + 1)) * (6 + bassEnergy * 28);
+        const ripple = Math.cos(theta * nodes) * waveAmplitude;
         const currentR = ringRadius + ripple;
 
-        const px = cx + Math.cos(theta) * currentR;
-        const py = cy + Math.sin(theta) * currentR;
+        const px = cx + STATIC_COS_90[s] * currentR;
+        const py = cy + STATIC_SIN_90[s] * currentR;
 
         if (s === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
@@ -682,12 +694,7 @@ export class VisualEngine {
     // Refined, minimalist amplitude
     const baseAmp = (22 + audio.loudnessEnvelope * 110) * intensity * sensitivity;
     const bufferLen = timeDomain.length;
-
-    // Smooth center taper around central emblem
-    const getTaper = (x: number) => {
-      const normFromCenter = Math.abs(x - width * 0.5) / (width * 0.5);
-      return Math.min(1.0, 0.35 + normFromCenter * 0.95);
-    };
+    const invHalfW = 1 / (width * 0.5);
 
     // Pass 1: Delicate Luminous Envelope Teeth (subtle musical ribs)
     ctx.strokeStyle = palette.colors.melodic;
@@ -698,7 +705,7 @@ export class VisualEngine {
       const x = startX + i * step;
       const bufIdx = Math.floor((i / points) * (bufferLen - 1));
       const sample = Math.abs(timeDomain[bufIdx] || 0);
-      const taper = getTaper(x);
+      const taper = Math.min(1.0, 0.35 + Math.abs(x - width * 0.5) * invHalfW * 0.95);
       const h = (sample * baseAmp * 1.25 + 2 * intensity) * taper;
       ctx.moveTo(x, cy - h);
       ctx.lineTo(x, cy + h);
@@ -712,7 +719,7 @@ export class VisualEngine {
       const x = startX + i * step;
       const bufIdx = Math.floor((i / points) * (bufferLen - 1));
       const sample = timeDomain[bufIdx] || 0;
-      const taper = getTaper(x);
+      const taper = Math.min(1.0, 0.35 + Math.abs(x - width * 0.5) * invHalfW * 0.95);
       const y = cy + sample * baseAmp * taper;
       ctx.lineTo(x, y);
     }
@@ -734,7 +741,7 @@ export class VisualEngine {
       const x = startX + i * step;
       const bufIdx = Math.floor((i / points) * (bufferLen - 1));
       const sample = timeDomain[bufIdx] || 0;
-      const taper = getTaper(x);
+      const taper = Math.min(1.0, 0.35 + Math.abs(x - width * 0.5) * invHalfW * 0.95);
       const y = cy - sample * (baseAmp * 0.5) * taper;
       ctx.lineTo(x, y);
     }
@@ -776,21 +783,19 @@ export class VisualEngine {
     const leftX = Math.max(30, width * 0.022);
     const rightX = width - leftX;
 
-    // Multi-band frequency energies
-    const bandEnergies = [
-      Math.min(1.0, (audio.subBass * 1.8 + 0.08) * sensitivity),
-      Math.min(1.0, (audio.bass * 1.6 + 0.08) * sensitivity),
-      Math.min(1.0, (audio.lowMid * 1.5 + 0.06) * sensitivity),
-      Math.min(1.0, (audio.mid * 1.4 + 0.06) * sensitivity),
-      Math.min(1.0, (audio.high * 1.3 + 0.05) * sensitivity)
-    ];
+    // Multi-band frequency energies (reusable array, zero allocation)
+    this.reusableBandEnergies[0] = Math.min(1.0, (audio.subBass * 1.8 + 0.08) * sensitivity);
+    this.reusableBandEnergies[1] = Math.min(1.0, (audio.bass * 1.6 + 0.08) * sensitivity);
+    this.reusableBandEnergies[2] = Math.min(1.0, (audio.lowMid * 1.5 + 0.06) * sensitivity);
+    this.reusableBandEnergies[3] = Math.min(1.0, (audio.mid * 1.4 + 0.06) * sensitivity);
+    this.reusableBandEnergies[4] = Math.min(1.0, (audio.high * 1.3 + 0.05) * sensitivity);
 
     const segmentsPerHalf = 22;
     const segH = (towerH * 0.5 - 10) / segmentsPerHalf;
 
     // --- 1. SLENDER VERTICAL SPECTRUM COLUMNS ---
     for (let c = 0; c < numColumns; c++) {
-      const bandVal = bandEnergies[c];
+      const bandVal = this.reusableBandEnergies[c];
       const activeSegs = Math.max(1, Math.round(bandVal * segmentsPerHalf));
 
       // Left column X (from outer edge inward)
@@ -858,30 +863,28 @@ export class VisualEngine {
       }
     }
 
-    // --- 2. PRECISION dB GRADUATION TICKS & RAILS ---
+    // --- 2. PRECISION dB GRADUATION TICKS & RAILS (Batched in single stroke passes) ---
     const tickCount = 14;
     const tickStep = towerH / tickCount;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
     ctx.lineWidth = 0.75;
     ctx.globalAlpha = 0.6;
 
+    ctx.beginPath();
     for (let t = 0; t <= tickCount; t++) {
       const y = topY + t * tickStep;
       const isMajor = t % 2 === 0;
       const tickLen = isMajor ? 6 : 3.5;
 
-      ctx.beginPath();
       ctx.moveTo(leftX - 8, y);
       ctx.lineTo(leftX - 8 + tickLen, y);
-      ctx.stroke();
 
-      ctx.beginPath();
       ctx.moveTo(rightX + 8, y);
       ctx.lineTo(rightX + 8 - tickLen, y);
-      ctx.stroke();
     }
+    ctx.stroke();
 
-    // Thin outer bounding rails
+    // Thin outer bounding rails (batched)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
     ctx.lineWidth = 0.6;
     ctx.globalAlpha = 0.45;
@@ -889,9 +892,6 @@ export class VisualEngine {
     ctx.beginPath();
     ctx.moveTo(leftX - 9, topY);
     ctx.lineTo(leftX - 9, topY + towerH);
-    ctx.stroke();
-
-    ctx.beginPath();
     ctx.moveTo(rightX + 9, topY);
     ctx.lineTo(rightX + 9, topY + towerH);
     ctx.stroke();
@@ -949,15 +949,19 @@ export class VisualEngine {
       const rot = this.constellationPhase * (isRight ? -0.4 : 0.4);
       const hexR = 36 * intensity * (1 + harmonicEnergy * 0.15);
 
-      const nodes: [number, number][] = [];
+      const nodes = this.reusableConstellationNodes;
       for (let i = 0; i < 6; i++) {
         const theta = rot + (i / 6) * Math.PI * 2;
-        nodes.push([ax + Math.cos(theta) * hexR, ay + Math.sin(theta) * hexR]);
+        nodes[i][0] = ax + Math.cos(theta) * hexR;
+        nodes[i][1] = ay + Math.sin(theta) * hexR;
       }
 
-      nodes.push([ax + Math.cos(rot + 1.2) * (hexR * 1.8), ay + Math.sin(rot + 1.2) * (hexR * 1.8)]);
-      nodes.push([ax + Math.cos(rot - 1.8) * (hexR * 2.1), ay + Math.sin(rot - 1.8) * (hexR * 2.1)]);
-      nodes.push([ax + (isRight ? 45 : -45), ay - 35]);
+      nodes[6][0] = ax + Math.cos(rot + 1.2) * (hexR * 1.8);
+      nodes[6][1] = ay + Math.sin(rot + 1.2) * (hexR * 1.8);
+      nodes[7][0] = ax + Math.cos(rot - 1.8) * (hexR * 2.1);
+      nodes[7][1] = ay + Math.sin(rot - 1.8) * (hexR * 2.1);
+      nodes[8][0] = ax + (isRight ? 45 : -45);
+      nodes[8][1] = ay - 35;
 
       ctx.strokeStyle = palette.colors.harmonic;
       ctx.lineWidth = 0.6;
@@ -982,16 +986,18 @@ export class VisualEngine {
       ctx.lineTo(nodes[8][0], nodes[8][1]);
       ctx.stroke();
 
+      // Batch all node glows into a single path and fill once (saves 16 expensive Canvas blur passes)
+      ctx.beginPath();
       for (let i = 0; i < nodes.length; i++) {
         const [nx, ny] = nodes[i];
-        ctx.beginPath();
+        ctx.moveTo(nx + 1.6, ny);
         ctx.arc(nx, ny, 1.6, 0, Math.PI * 2);
-        ctx.fillStyle = palette.colors.accent;
-        ctx.shadowColor = palette.colors.harmonic;
-        ctx.shadowBlur = 6;
-        ctx.globalAlpha = clusterAlpha;
-        ctx.fill();
       }
+      ctx.fillStyle = palette.colors.accent;
+      ctx.shadowColor = palette.colors.harmonic;
+      ctx.shadowBlur = 6;
+      ctx.globalAlpha = clusterAlpha;
+      ctx.fill();
 
       // Sparkle Star (4-point sparkle matching user screenshot)
       const starX = isRight ? rightAnchorX + 50 : leftAnchorX - 45;

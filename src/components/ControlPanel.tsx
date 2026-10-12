@@ -31,7 +31,7 @@ interface ControlPanelProps {
   onClose: () => void;
 }
 
-export const ControlPanel: React.FC<ControlPanelProps> = ({
+export const ControlPanelComponent: React.FC<ControlPanelProps> = ({
   settings,
   onUpdateSettings,
   onToggleBigScreen,
@@ -1357,3 +1357,5 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     </div>
   );
 };
+
+export const ControlPanel = React.memo(ControlPanelComponent);

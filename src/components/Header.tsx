@@ -41,7 +41,7 @@ interface HeaderProps {
   onToggleBigScreen: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+export const HeaderComponent: React.FC<HeaderProps> = ({
   playbackState,
   showControls,
   setShowControls,
@@ -448,3 +448,5 @@ export const Header: React.FC<HeaderProps> = ({
     </div>
   );
 };
+
+export const Header = React.memo(HeaderComponent);

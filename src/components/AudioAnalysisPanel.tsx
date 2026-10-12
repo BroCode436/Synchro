@@ -1,14 +1,35 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AudioFrameData, AudioPlaybackState } from '../types/audio';
-import { Zap, Volume2, Music2, Gauge, Info } from 'lucide-react';
+import { audioEngine } from '../audio/AudioEngine';
+import { Zap, Gauge, Info } from 'lucide-react';
 
 interface AudioAnalysisPanelProps {
-  data: AudioFrameData | null;
+  data?: AudioFrameData | null;
   playbackState?: AudioPlaybackState;
   onClose: () => void;
 }
 
-export const AudioAnalysisPanel: React.FC<AudioAnalysisPanelProps> = ({ data, playbackState, onClose }) => {
+export const AudioAnalysisPanelComponent: React.FC<AudioAnalysisPanelProps> = ({
+  data: initialData,
+  playbackState,
+  onClose
+}) => {
+  const [frameData, setFrameData] = useState<AudioFrameData | null>(initialData || null);
+  const lastUpdateRef = useRef(0);
+
+  useEffect(() => {
+    const unsubscribe = audioEngine.subscribeFrame(frame => {
+      const now = performance.now();
+      // Throttle HUD DOM updates to ~20 FPS to keep main thread light
+      if (now - lastUpdateRef.current > 50) {
+        lastUpdateRef.current = now;
+        setFrameData({ ...frame });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const data = frameData || initialData;
   if (!data) return null;
 
   const bands = [
@@ -167,3 +188,5 @@ export const AudioAnalysisPanel: React.FC<AudioAnalysisPanelProps> = ({ data, pl
     </div>
   );
 };
+
+export const AudioAnalysisPanel = React.memo(AudioAnalysisPanelComponent);
